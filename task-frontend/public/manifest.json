@@ -1,0 +1,16 @@
+{
+  "name": "Task Manager",
+  "short_name": "Tasks",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#3f51b5",
+  "description": "A collaborative task manager application.",
+  "icons": [
+    {
+      "src": "/vite.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    }
+  ]
+}
