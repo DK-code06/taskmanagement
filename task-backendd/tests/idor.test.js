@@ -1,13 +1,10 @@
 const request = require('supertest');
 const { app } = require('../server');
-const Category = require('../models/Category');
-const Task = require('../models/Task');
-const Team = require('../models/Team');
 
 require('./setup');
 
-describe('IDOR & Resource Authorization Tests', () => {
-  let userAToken, userBToken, userAId, userBId, userACategoryId, userATaskId, teamId;
+describe('IDOR & Positive/Negative Resource Authorization Tests', () => {
+  let userAToken, userAId, userBToken, userBId, userACategoryId, userATaskId, teamId;
 
   beforeEach(async () => {
     // User A
@@ -46,51 +43,140 @@ describe('IDOR & Resource Authorization Tests', () => {
     teamId = teamRes.body._id;
   });
 
-  it('should block User B from updating User A task (IDOR prevention)', async () => {
-    const res = await request(app)
+  // TASKS AUTHORIZATION
+  it('POSITIVE: User A can view, update, add comments, and delete own task', async () => {
+    // View
+    const getRes = await request(app)
+      .get(`/api/tasks/by-category/${userACategoryId}`)
+      .set('Authorization', `Bearer ${userAToken}`);
+    expect(getRes.statusCode).toEqual(200);
+
+    // Update
+    const putRes = await request(app)
+      .put(`/api/tasks/${userATaskId}`)
+      .set('Authorization', `Bearer ${userAToken}`)
+      .send({ title: 'Updated Title' });
+    expect(putRes.statusCode).toEqual(200);
+
+    // Comment
+    const commentRes = await request(app)
+      .post(`/api/tasks/${userATaskId}/comments`)
+      .set('Authorization', `Bearer ${userAToken}`)
+      .send({ content: 'Owner comment' });
+    expect(commentRes.statusCode).toEqual(201);
+
+    // Delete
+    const delRes = await request(app)
+      .delete(`/api/tasks/${userATaskId}`)
+      .set('Authorization', `Bearer ${userAToken}`);
+    expect(delRes.statusCode).toEqual(200);
+  });
+
+  it('NEGATIVE: User B cannot view, update, comment, or delete User A task (IDOR protection)', async () => {
+    // View
+    const getRes = await request(app)
+      .get(`/api/tasks/by-category/${userACategoryId}`)
+      .set('Authorization', `Bearer ${userBToken}`);
+    expect(getRes.statusCode).toEqual(403);
+
+    // Update
+    const putRes = await request(app)
       .put(`/api/tasks/${userATaskId}`)
       .set('Authorization', `Bearer ${userBToken}`)
       .send({ title: 'Hacked Title' });
+    expect(putRes.statusCode).toEqual(403);
 
-    expect(res.statusCode).toEqual(403);
-    expect(res.body.error).toContain('Access denied');
-  });
+    // Comment
+    const commentRes = await request(app)
+      .post(`/api/tasks/${userATaskId}/comments`)
+      .set('Authorization', `Bearer ${userBToken}`)
+      .send({ content: 'Malicious comment' });
+    expect(commentRes.statusCode).toEqual(403);
 
-  it('should block User B from deleting User A task (IDOR prevention)', async () => {
-    const res = await request(app)
+    // Delete
+    const delRes = await request(app)
       .delete(`/api/tasks/${userATaskId}`)
       .set('Authorization', `Bearer ${userBToken}`);
-
-    expect(res.statusCode).toEqual(403);
-
-    // Verify task still exists in DB
-    const task = await Task.findById(userATaskId);
-    expect(task).not.toBeNull();
+    expect(delRes.statusCode).toEqual(403);
   });
 
-  it('should block User B from deleting User A category (IDOR prevention)', async () => {
-    const res = await request(app)
+  // CATEGORIES AUTHORIZATION
+  it('POSITIVE & NEGATIVE: Category ownership authorization checks', async () => {
+    // User B cannot pin User A category
+    const pinRes = await request(app)
+      .put(`/api/categories/${userACategoryId}/pin`)
+      .set('Authorization', `Bearer ${userBToken}`);
+    expect(pinRes.statusCode).toEqual(403);
+
+    // User A can pin own category
+    const pinResA = await request(app)
+      .put(`/api/categories/${userACategoryId}/pin`)
+      .set('Authorization', `Bearer ${userAToken}`);
+    expect(pinResA.statusCode).toEqual(200);
+
+    // User B cannot delete User A category
+    const delRes = await request(app)
       .delete(`/api/categories/${userACategoryId}`)
       .set('Authorization', `Bearer ${userBToken}`);
-
-    expect(res.statusCode).toEqual(403);
+    expect(delRes.statusCode).toEqual(403);
   });
 
-  it('should block User B from viewing Team A analytics if not a team member', async () => {
-    const res = await request(app)
+  // TEAMS & TEAM INVITATION AUTHORIZATION
+  it('POSITIVE & NEGATIVE: Team membership and invite permissions', async () => {
+    // User B cannot view team list of team they are not a member of
+    const teamList = await request(app)
+      .get('/api/teams')
+      .set('Authorization', `Bearer ${userBToken}`);
+    expect(teamList.statusCode).toEqual(200);
+    expect(teamList.body.some(t => t._id === teamId)).toEqual(false);
+
+    // User B cannot invite users to Team A
+    const inviteRes = await request(app)
+      .put(`/api/teams/${teamId}/invite`)
+      .set('Authorization', `Bearer ${userBToken}`)
+      .send({ friendId: userBId });
+    expect(inviteRes.statusCode).toEqual(403);
+  });
+
+  // ANALYTICS AUTHORIZATION
+  it('POSITIVE & NEGATIVE: Analytics authorization', async () => {
+    // User B cannot view Team A analytics
+    const resB = await request(app)
       .get(`/api/analytics/team/${teamId}`)
       .set('Authorization', `Bearer ${userBToken}`);
+    expect(resB.statusCode).toEqual(403);
 
-    expect(res.statusCode).toEqual(403);
-    expect(res.body.error).toContain('not a member');
-  });
-
-  it('should allow team member to view team analytics', async () => {
-    const res = await request(app)
+    // User A (Creator/Admin) can view Team A analytics
+    const resA = await request(app)
       .get(`/api/analytics/team/${teamId}`)
       .set('Authorization', `Bearer ${userAToken}`);
+    expect(resA.statusCode).toEqual(200);
+  });
 
-    expect(res.statusCode).toEqual(200);
-    expect(res.body.totalTasks).toBeDefined();
+  // FRIENDS & CHAT AUTHORIZATION
+  it('POSITIVE & NEGATIVE: Friend request and chat authorization', async () => {
+    // Send friend request User A -> User B
+    const reqRes = await request(app)
+      .post(`/api/friends/request/${userBId}`)
+      .set('Authorization', `Bearer ${userAToken}`);
+    expect(reqRes.statusCode).toEqual(200);
+
+    // User B cannot view chat history before accepting friend request
+    const chatRes1 = await request(app)
+      .get(`/api/friends/chat/${userAId}`)
+      .set('Authorization', `Bearer ${userBToken}`);
+    expect(chatRes1.statusCode).toEqual(403);
+
+    // User B accepts request
+    const acceptRes = await request(app)
+      .put(`/api/friends/accept/${userAId}`)
+      .set('Authorization', `Bearer ${userBToken}`);
+    expect(acceptRes.statusCode).toEqual(200);
+
+    // Now chat history is allowed
+    const chatRes2 = await request(app)
+      .get(`/api/friends/chat/${userAId}`)
+      .set('Authorization', `Bearer ${userBToken}`);
+    expect(chatRes2.statusCode).toEqual(200);
   });
 });

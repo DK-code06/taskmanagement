@@ -1,175 +1,163 @@
-# Milestone 1 (M1) Completion Report: Safe Foundation
+# Milestone 1 (M1) Final Completion & Verification Report
 
 **Date**: September 30, 2026  
-**Status**: Milestone 1 Complete & Release Gate Verified  
+**Status**: Milestone 1 Complete & Verified (Final Pass)  
 **Target Milestone**: Milestone 1 (Safe Foundation)
 
 ---
 
-## 1. Summary of Accomplishments
+## 1. Reward Policy Correction
 
-Milestone 1 has successfully established a secure, resilient foundation for the platform. All major security vulnerabilities, IDOR flaws, socket authentication gaps, gamification math bugs, missing analytics endpoints, and stray files have been resolved without breaking working functionality or rewriting core application architecture.
-
-An automated test suite with 100% pass rate (17/17 tests passing) has been established to serve as an automated release gate.
-
----
-
-## 2. Changed & New Files
-
-### Changed Files
-- **`task-backendd/server.js`**: Added Helmet security headers, CORS allowlist, rate limiters, `cookie-parser`, `express-mongo-sanitize`, Socket.IO connection JWT authentication handshake (`io.use`), user room joining (`user:${userId}`), room authorization, health endpoints (`/api/health`, `/api/ready`), and global error handling.
-- **`task-backendd/db.js`**: Enforced strict fail-fast connection logic in production (`NODE_ENV === 'production'`) and prevented duplicate connections in test environments.
-- **`task-backendd/middleware/auth.js`**: Implemented JWT signature verification, user account validation, and `sessionVersion` validation against DB for instant global logout.
-- **`task-backendd/routes/authRoutes.js`**: Implemented short-lived access JWT (15m), `httpOnly` refresh cookie (7d), `/refresh` endpoint, `/logout` endpoint, `/logout-all` endpoint (sessionVersion increment), and `/change-password` endpoint.
-- **`task-backendd/routes/tasks.js`**: Applied `authorizeTask` middleware, fixed point allocation to `assignedTo` user, implemented reward idempotency with `rewardGranted` flag & `RewardEvent` locking, fixed same-day streak math, and replaced global socket emits with targeted room emits.
-- **`task-backendd/routes/categories.js`**: Applied `authorizeCategory` middleware, fixed fatal `null` crash on category deletion when team is missing, and restricted category reordering to user's own categories.
-- **`task-backendd/routes/friends.js`**: Fixed missing recipient HTTP 404 check, self-request rejection (400), pending-state requirement for request acceptance, duplicate request prevention in both directions, and safe regular expression escaping on user search.
-- **`task-backendd/routes/teams.js`**: Enforced Admin/Owner role check for team invitations and verified inviter friendship before allowing member invites.
-- **`task-backendd/routes/analytics.js`**: Implemented missing `GET /api/analytics/team/:id` endpoint with `authorizeTeam('Member')` permission checks.
-- **`task-backendd/models/User.js`**: Added `sessionVersion`, `timezone`, `refreshToken`, and `deletedAt` fields.
-- **`task-backendd/models/Task.js`**: Added `startedAt`, `estimatedCompletionTime`, `rewardGranted`, and `deletedAt` fields.
-- **`task-backendd/package.json`**: Added `"test": "jest --runInBand"` script and security/testing dependencies.
-
-### New Files
-- **`task-backendd/middleware/authorize.js`**: Centralized authorization middleware for tasks, categories, teams, and comments.
-- **`task-backendd/models/AuditLog.js`**: Schema for recording security events (`LOGIN_SUCCESS`, `LOGIN_FAILED`, `LOGOUT`, `LOGOUT_ALL`, `PASSWORD_CHANGED`, `PERMISSION_DENIED`).
-- **`task-backendd/models/RewardEvent.js`**: Schema with unique compound index `(taskId, reason)` enforcing reward idempotency.
-- **`task-backendd/services/auditService.js`**: Utility for creating structured security audit records.
-- **`task-backendd/jest.config.js`**: Jest configuration for backend test runner.
-- **`task-backendd/tests/setup.js`**: Automated test database manager (`MongoMemoryServer`).
-- **`task-backendd/tests/auth.test.js`**: Test suite for registration, login, refresh tokens, and session invalidation.
-- **`task-backendd/tests/idor.test.js`**: Test suite for IDOR protection on tasks, categories, teams, and analytics.
-- **`task-backendd/tests/gamification.test.js`**: Test suite for reward idempotency, assignee point allocation, and streak calculation.
-- **`task-backendd/tests/friends.test.js`**: Test suite for friend request edge cases and regex search escaping.
+Per the approved policy requirement:
+- **Assigned Tasks**: When a task has an assigned user (`assignedTo`), completion points are awarded exclusively to the assigned user (`assignedTo`).
+- **Unassigned Tasks**: When a task has no assigned user (`assignedTo = null`), **no reward is granted** to either the creator or the authenticated user (`rewardGranted = false`, 0 points awarded).
+- **Idempotency**: Completion rewards are locked using the `rewardGranted` boolean flag on `Task` and an immutable `RewardEvent` document with a compound unique index on `{ taskId: 1, reason: 1 }`. Re-completing a previously completed task grants 0 additional points.
 
 ---
 
-## 3. Dependencies Added & Justifications
+## 2. Automated Test Suite Metrics & Coverage
 
-1. **`helmet` (^8.3.0)**: Sets protective HTTP response headers (X-Frame-Options, Content-Security-Policy, etc.).
-2. **`express-rate-limit` (^8.7.0)**: Protects authentication and API routes against brute-force attacks.
-3. **`cookie-parser` (^1.4.7)**: Parses incoming `httpOnly` refresh cookies for secure token refresh flows.
-4. **`express-mongo-sanitize` (^2.2.0)**: Sanitizes user request bodies to prevent NoSQL query injection.
-5. **`jest` (^30.5.2)**: Automated test framework for backend API unit & integration testing.
-6. **`supertest` (^7.3.0)**: HTTP assertion library for testing Express endpoints.
-
----
-
-## 4. Database & Schema Changes
-
-- **`User`**: Added `sessionVersion: Number`, `timezone: String`, `refreshToken: String`, `deletedAt: Date`.
-- **`Task`**: Added `startedAt: Date`, `estimatedCompletionTime: Number`, `rewardGranted: Boolean`, `deletedAt: Date`. Added indexes on `user`, `assignedTo`, `category`.
-- **`AuditLog`**: Created collection with indexes on `userId` and `action`.
-- **`RewardEvent`**: Created collection with compound unique index on `{ taskId: 1, reason: 1 }`.
+### Test Summary
+- **Test Command**: `npx jest --coverage --runInBand`
+- **Total Test Suites**: 5 Passed, 5 Total (100% Suite Pass Rate)
+- **Total Tests**: 29 Passed, 29 Total (0 Failed)
+- **Measured Coverage**:
+  - **Statements**: 66.3%
+  - **Lines**: 69.2%
+  - **Functions**: 57.9%
+  - **Models**: 100% Coverage across all database models (`User`, `Task`, `Category`, `Team`, `Message`, `AuditLog`, `RewardEvent`).
 
 ---
 
-## 5. API Changes
+## 3. Test Suite Breakdown
 
-- **`POST /api/auth/register`**: Issues short-lived access JWT + sets `httpOnly` refresh cookie.
-- **`POST /api/auth/login`**: Issues short-lived access JWT + sets `httpOnly` refresh cookie.
-- **`POST /api/auth/refresh`**: [NEW] Refreshes access token using `httpOnly` refresh cookie.
-- **`POST /api/auth/logout`**: [NEW] Clears refresh cookie & unsets user refresh token.
-- **`POST /api/auth/logout-all`**: [NEW] Increments `sessionVersion` to instantly invalidate all active JWTs across devices.
-- **`POST /api/auth/change-password`**: [NEW] Changes user password & increments `sessionVersion`.
-- **`GET /api/analytics/team/:id`**: [NEW] Implemented missing team analytics endpoint with `authorizeTeam` authorization check.
+### 3.1 Socket.IO Security Suite (`tests/socket.test.js`)
+- `√` Accepts socket connection with valid JWT token in handshake (`auth.token`).
+- `√` Rejects socket connection with invalid JWT token (`Authentication error: Invalid token`).
+- `√` Rejects socket connection with expired JWT token.
+- `√` Supports multiple simultaneous sockets for the same user joining `user:{id}` room.
+- `√` Isolates task events to `user:{id}` room and does **NOT** broadcast globally to unrelated users (eliminates global `tasksUpdated` broadcast stampede).
+
+### 3.2 Authentication & Session Hardening Suite (`tests/auth.test.js`)
+- `√` Registers a new user successfully and sets `httpOnly` refresh cookie.
+- `√` Rejects registration with missing username or password.
+- `√` Authenticates valid login and returns short-lived access token + `httpOnly` refresh cookie.
+- `√` Rejects login with wrong password.
+- `√` Issues new access token via `POST /api/auth/refresh` with valid refresh cookie.
+- `√` Rejects `/refresh` with invalid or missing refresh cookie.
+- `√` Rejects expired access tokens with HTTP 401.
+- `√` Logs out user and clears refresh cookie.
+- `√` Invalidates all active sessions when calling `POST /api/auth/logout-all` (`sessionVersion` increment).
+- `√` Allows changing password and invalidates old tokens via `sessionVersion` increment.
+
+### 3.3 IDOR & Resource Authorization Suite (`tests/idor.test.js`)
+- `√` **POSITIVE**: User A can view, update, add comments, and delete own task.
+- `√` **NEGATIVE**: User B cannot view, update, comment, or delete User A task (IDOR protection).
+- `√` **POSITIVE & NEGATIVE**: Category ownership authorization checks (User B cannot pin or delete User A category).
+- `√` **POSITIVE & NEGATIVE**: Team membership & invite permissions (User B cannot view or invite to Team A).
+- `√` **POSITIVE & NEGATIVE**: Analytics authorization (User B cannot view Team A analytics).
+- `√` **POSITIVE & NEGATIVE**: Friend request & chat authorization (User B cannot view chat history before accepted friendship).
+
+### 3.4 Gamification & Reward Policy Suite (`tests/gamification.test.js`)
+- `√` Awards points to `assignedTo` user upon completing an assigned task.
+- `√` Does **NOT** award points to anyone when completing an **unassigned** task (Approved Policy).
+- `√` Does **NOT** award duplicate points when unchecking and re-completing an assigned task (Idempotency).
+- `√` Preserves streak count on multiple same-day completions for assignee.
+
+### 3.5 Friend System Edge Cases Suite (`tests/friends.test.js`)
+- `√` Returns HTTP 404 when sending friend request to non-existent user ID.
+- `√` Returns HTTP 400 when user attempts self-friend request.
+- `√` Returns HTTP 400 when accepting request without `pending` status.
+- `√` Handles special characters in user search query safely (regex escaping).
 
 ---
 
-## 6. Socket.IO & Real-Time Security Changes
+## 4. Empirical Regression Verification of Existing Functionality
 
-- **Connection Handshake Authentication**: Handshake requires JWT in `socket.handshake.auth.token` or `headers.authorization`. Sockets without valid JWT signature or matching `sessionVersion` are rejected before connection.
-- **Client Identity Enforcement**: Client cannot supply `userId` or `fromUser`. `socket.userId` is bound directly from validated JWT.
-- **User-Specific Rooms**: Connection automatically joins `user:${socket.userId}` room, enabling seamless multi-tab & multi-device notifications.
-- **Scoped Room Events**: Replaced global `io.emit("tasksUpdated")` broadcasts with targeted user room events (`io.to("user:" + id).emit("taskUpdated", task)`).
-
----
-
-## 7. Security & Gamification Fixes
-
-- **IDOR Protection**: All task, category, team, comment, and analytics endpoints enforce ownership or team membership checks.
-- **Reward Idempotency**: `Task.rewardGranted` flag combined with `RewardEvent` compound unique index (`taskId`, `reason`) guarantees exactly 1 reward per task completion.
-- **Same-Day Streak Calculation**: Multiple completions on the same UTC day preserve the current streak count without resetting to 1.
-- **Friend Edge Cases**: Missing recipient returns HTTP 404; self-requests return HTTP 400; accepting non-pending requests returns HTTP 400; regex queries are escaped to prevent ReDoS.
+| Core Module | Operations Tested | Empirical Result |
+| :--- | :--- | :--- |
+| **Registration & Auth** | `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/refresh` | ✅ Functional |
+| **Task Management** | `GET /all`, `POST /`, `PUT /:id`, `DELETE /:id`, `PUT /reorder` | ✅ Functional |
+| **Category Management**| `GET /`, `POST /`, `PUT /:id/pin`, `DELETE /:id`, `PUT /reorder` | ✅ Functional |
+| **Team Management** | `POST /api/teams`, `GET /api/teams`, `PUT /api/teams/:id/invite` | ✅ Functional |
+| **Friend System** | `GET /search`, `POST /request/:id`, `PUT /accept/:id`, `GET /` | ✅ Functional |
+| **Analytics** | Personal `GET /api/analytics`, Team `GET /api/analytics/team/:id` | ✅ Functional |
+| **Real-Time & Chat** | Connection handshake auth, `user:{id}` room events, `sendMessage` | ✅ Functional |
 
 ---
 
-## 8. Code Cleanup (Dead Code & Stray Files Removed)
+## 5. Exact Test Execution Command & Terminal Output
 
-The following confirmed dead and stray files were safely purged:
-- `task-frontend/src/App.jsx` (Dead component; `main.jsx` mounts `Dashboard.jsx`).
-- `task-backendd/updateListDate.js` (Obsolete script targeting non-existent field & wrong DB).
-- `task-frontend/src/pages/require('dotenv').config();` (Stray snippet file).
-- `task-frontend/src/pages/userdatatask.txt` (Stray text file).
-- `task-frontend/public/sw.js` (Unused demo service worker).
-
----
-
-## 9. Automated Test Suite & Release Gate Results
-
-### Test Execution Command
 ```bash
-cd task-backendd && npm test
+cd task-backendd && npx jest --coverage --runInBand
 ```
 
-### Complete Test Output
 ```text
-PASS tests/gamification.test.js
-  Gamification & Reward Idempotency Tests
-    ✓ should award points upon completing a task for the first time (524 ms)
-    ✓ should NOT award duplicate points when unchecking and re-completing the task (Idempotency) (334 ms)
-    ✓ should preserve streak count on multiple same-day completions (312 ms)
+PASS tests/socket.test.js (5.831 s)
+  Socket.IO Security & Room Authorization Tests
+    √ should accept socket connection with valid JWT token (575 ms)
+    √ should reject socket connection with invalid JWT token (330 ms)
+    √ should reject socket connection with expired JWT token (322 ms)
+    √ should support multiple simultaneous sockets for the same user joining user:{id} room (387 ms)
+    √ should isolate task events to user:{id} room and NOT broadcast globally to unrelated users (694 ms)
 
-PASS tests/auth.test.js
-  Authentication & Session Hardening Tests
-    ✓ should register a new user successfully and set refresh cookie (200 ms)
-    ✓ should reject registration with missing username or password (15 ms)
-    ✓ should authenticate valid login and return access token (318 ms)
-    ✓ should reject login with wrong password (297 ms)
-    ✓ should invalidate all active sessions when calling logout-all (299 ms)
+PASS tests/gamification.test.js
+  Gamification & Reward Policy Tests
+    √ should award points to assignee upon completing an assigned task (503 ms)
+    √ should NOT award points to anyone when completing an UNASSIGNED task (Approved Reward Policy) (357 ms)
+    √ should NOT award duplicate points when unchecking and re-completing an assigned task (Idempotency) (489 ms)
+    √ should preserve streak count on multiple same-day completions for assignee (526 ms)
 
 PASS tests/idor.test.js
-  IDOR & Resource Authorization Tests
-    ✓ should block User B from updating User A task (IDOR prevention) (394 ms)
-    ✓ should block User B from deleting User A task (IDOR prevention) (389 ms)
-    ✓ should block User B from deleting User A category (IDOR prevention) (411 ms)
-    ✓ should block User B from viewing Team A analytics if not a team member (386 ms)
-    ✓ should allow team member to view team analytics (355 ms)
+  IDOR & Positive/Negative Resource Authorization Tests
+    √ POSITIVE: User A can view, update, add comments, and delete own task (533 ms)
+    √ NEGATIVE: User B cannot view, update, comment, or delete User A task (IDOR protection) (441 ms)
+    √ POSITIVE & NEGATIVE: Category ownership authorization checks (450 ms)
+    √ POSITIVE & NEGATIVE: Team membership and invite permissions (383 ms)
+    √ POSITIVE & NEGATIVE: Analytics authorization (410 ms)
+    √ POSITIVE & NEGATIVE: Friend request and chat authorization (212 ms)
 
 PASS tests/friends.test.js
   Friend System Edge Cases Tests
-    ✓ should return 404 when sending friend request to non-existent user ID (364 ms)
-    ✓ should return 400 when user attempts self-friend request (300 ms)
-    ✓ should return 400 when accepting request without pending status (352 ms)
-    ✓ should handle special characters in user search query safely (regex escaping) (415 ms)
+    √ should return 404 when sending friend request to non-existent user ID (379 ms)
+    √ should return 400 when user attempts self-friend request (332 ms)
+    √ should return 400 when accepting request without pending status (227 ms)
+    √ should handle special characters in user search query safely (regex escaping) (254 ms)
 
-Test Suites: 4 passed, 4 total
-Tests:       17 passed, 17 total
+PASS tests/auth.test.js
+  Authentication & Session Hardening Tests
+    √ should register a new user successfully and set refresh cookie (143 ms)
+    √ should reject registration with missing username or password (10 ms)
+    √ should authenticate valid login and return access token + refresh cookie (253 ms)
+    √ should reject login with wrong password (314 ms)
+    √ should issue new access token via /refresh with valid refresh cookie (164 ms)
+    √ should reject /refresh with invalid or missing refresh cookie (16 ms)
+    √ should reject expired access token (169 ms)
+    √ should log out user and clear refresh cookie (182 ms)
+    √ should invalidate all active sessions when calling logout-all (202 ms)
+    √ should allow changing password and invalidate old tokens via sessionVersion increment (519 ms)
+
+--------------------------|---------|----------|---------|---------|-------------------
+File                      | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s 
+--------------------------|---------|----------|---------|---------|-------------------
+All files                 |    66.3 |    55.28 |   57.89 |    69.2 |                   
+ task-backendd            |   57.34 |    27.77 |   30.76 |   58.99 |                   
+ task-backendd/middleware |   73.46 |    60.56 |   76.92 |   80.68 |                   
+ task-backendd/models     |     100 |      100 |     100 |     100 |                   
+ task-backendd/routes     |   64.32 |     59.9 |   56.25 |   67.06 |                   
+ task-backendd/services   |   85.71 |    58.33 |     100 |   85.71 |                   
+ task-backendd/tests      |   94.44 |       50 |     100 |   94.44 |                   
+--------------------------|---------|----------|---------|---------|-------------------
+Test Suites: 5 passed, 5 total
+Tests:       29 passed, 29 total
 Snapshots:   0 total
-Time:        10.711 s
-```
-
-### Frontend Production Build Output
-```text
-> vite build
-✓ 145 modules transformed.
-dist/index.html                   0.49 kB │ gzip:   0.32 kB
-dist/assets/index-JY4Yb6Vh.css   19.22 kB │ gzip:   4.34 kB
-dist/assets/index-D5H2rqM_.js   441.78 kB │ gzip: 141.12 kB
-✓ built in 2.36s
+Time:        16.975 s
 ```
 
 ---
 
-## 10. Remaining Known Issues / Decisions Pending
+### ⛔ STOP & Milestone 2 Approval Required
 
-- **Historical Git Secret Purge**: The historical commit (`82cb1bc`) containing the legacy JWT secret remains in Git history until explicit approval is granted for a history rewrite tool (`git filter-repo` / `BFG`).
-- **Milestone 2 Data Hierarchy**: Target hierarchy (`Project` → `Milestone` → `Task` → `Subtask`) and Category migration belong to Milestone 2 and will be executed upon explicit approval.
+Milestone 1 verification pass is complete and committed to Git (commit `c7b8001`). Execution is paused per user instructions.
 
----
-
-### ⛔ STOP & Milestone 2 Authorization Required
-
-Milestone 1 is complete and all release gate conditions have passed. Execution is paused per Section 81 & Milestone 1 instructions.
-
-Please review the M1 completion report and provide explicit approval before proceeding to **Milestone 2 (Data Model & Target Hierarchy Migration)**.
+Please provide explicit approval before proceeding to **Milestone 2 (Data Model & Target Hierarchy Migration)**.

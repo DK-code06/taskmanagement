@@ -8,7 +8,6 @@ const mongoose = require('mongoose');
 
 module.exports = function(io) {
 
-    // Helper to check if two dates are same day in local/UTC
     const isSameDay = (date1, date2) => {
         if (!date1 || !date2) return false;
         const d1 = new Date(date1);
@@ -18,7 +17,6 @@ module.exports = function(io) {
                d1.getUTCDate() === d2.getUTCDate();
     };
 
-    // Helper to check if date2 is consecutive day after date1
     const areConsecutiveDays = (date1, date2) => {
         if (!date1 || !date2) return false;
         const d1 = new Date(date1);
@@ -30,7 +28,6 @@ module.exports = function(io) {
         return diffDays === 1;
     };
 
-    // Helper to notify relevant user rooms
     const notifyTaskChange = (userIds, event = "taskUpdated", data = {}) => {
         const uniqueUsers = [...new Set(userIds.filter(Boolean).map(id => id.toString()))];
         uniqueUsers.forEach(uid => {
@@ -55,7 +52,7 @@ module.exports = function(io) {
       }
     });
 
-    // GET tasks for a specific category with authorization check
+    // GET tasks for a specific category
     router.get("/by-category/:categoryId", async (req, res) => {
       try {
         const { categoryId } = req.params;
@@ -76,7 +73,7 @@ module.exports = function(io) {
       }
     });
 
-    // POST a new task with authorization check
+    // POST a new task
     router.post("/", async (req, res) => {
       try {
         const { title, description = "", categoryId, dueDate, priority = 'No Priority', assignedTo = null, estimatedCompletionTime = 0 } = req.body;
@@ -153,7 +150,6 @@ module.exports = function(io) {
           return res.status(400).json({ error: "Invalid payload: 'tasks' must be an array." });
         }
 
-        // Verify user has access to tasks being reordered
         const taskIds = tasks.map(t => t.id).filter(Boolean);
         const accessibleTasks = await Task.find({
           _id: { $in: taskIds },
@@ -208,26 +204,27 @@ module.exports = function(io) {
         }
 
         const isNowMarkedDone = (updateFields.completed && !taskToUpdate.completed);
-        const rewardRecipientId = taskToUpdate.assignedTo || taskToUpdate.user;
 
         if (isNowMarkedDone) {
             updateFields.completedAt = new Date();
 
-            // Idempotency check: award reward ONLY IF not already granted
-            if (!taskToUpdate.rewardGranted) {
+            // Approved Reward Policy:
+            // ONLY tasks with an assigned user (assignedTo) receive completion rewards.
+            // Unassigned tasks grant NO reward (no fallback to creator/executor).
+            if (taskToUpdate.assignedTo && !taskToUpdate.rewardGranted) {
               try {
                 let pointsToAdd = 10;
                 if (taskToUpdate.dueDate && updateFields.completedAt <= new Date(taskToUpdate.dueDate)) {
                     pointsToAdd += 5;
                 }
 
-                const rewardRecipient = await User.findById(rewardRecipientId);
+                const rewardRecipient = await User.findById(taskToUpdate.assignedTo);
                 if (rewardRecipient) {
                   const today = new Date();
                   const lastDate = rewardRecipient.lastCompletionDate;
 
                   if (isSameDay(today, lastDate)) {
-                    // Same day completion: preserve streak counter
+                    // Same day completion: preserve streak
                   } else if (areConsecutiveDays(today, lastDate)) {
                     rewardRecipient.streak = (rewardRecipient.streak || 0) + 1;
                   } else {
@@ -241,7 +238,6 @@ module.exports = function(io) {
 
                   await rewardRecipient.save();
 
-                  // Record unique RewardEvent to lock against concurrent duplicates
                   await RewardEvent.create({
                     taskId: taskToUpdate._id,
                     userId: rewardRecipient._id,
@@ -252,7 +248,6 @@ module.exports = function(io) {
                   updateFields.rewardGranted = true;
                 }
               } catch (rewardErr) {
-                // Duplicate key error code 11000 indicates reward already granted concurrently
                 if (rewardErr.code !== 11000) {
                   console.error("Error granting task reward:", rewardErr);
                 }
@@ -260,7 +255,6 @@ module.exports = function(io) {
             }
         } else if (status && !updateFields.completed && taskToUpdate.completed) {
             updateFields.completedAt = null;
-            // Note: points are NOT deducted upon reopen, and rewardGranted remains true to prevent double rewards
         }
 
         const updatedTask = await Task.findOneAndUpdate(
