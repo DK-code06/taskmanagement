@@ -23,6 +23,8 @@ const leaderboardRoutes = require("./routes/leaderboard");
 const friendsRoutes = require("./routes/friends");
 const teamRoutes = require("./routes/teams");
 const analyticsRoutes = require("./routes/analytics");
+const projectRoutes = require("./routes/projects");
+const milestoneRoutes = require("./routes/milestones");
 
 dotenv.config();
 connectDB();
@@ -182,6 +184,8 @@ app.use("/api/leaderboard", auth, leaderboardRoutes);
 app.use("/api/teams", auth, teamRoutes);
 app.use("/api/friends", auth, friendsRoutes(io));
 app.use("/api/analytics", auth, analyticsRoutes);
+app.use("/api/projects", auth, projectRoutes);
+app.use("/api/milestones", auth, milestoneRoutes);
 
 // Global Error Handler
 app.use((err, req, res, next) => {

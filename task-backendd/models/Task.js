@@ -19,13 +19,31 @@ const commentSchema = new mongoose.Schema({
 
 const taskSchema = new mongoose.Schema(
   {
+    projectId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Project",
+      default: null,
+      index: true
+    },
+    milestoneId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Milestone",
+      default: null,
+      index: true
+    },
+    parentTaskId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Task",
+      default: null,
+      index: true
+    },
     title: { type: String, required: true, trim: true },
     description: { type: String, default: "" },
     completed: { type: Boolean, default: false },
     status: {
       type: String,
-      enum: ['To Do', 'In Progress', 'Done', 'READY', 'BLOCKED', 'COMPLETED'],
-      default: 'To Do'
+      enum: ['To Do', 'In Progress', 'Done', 'READY', 'BLOCKED', 'IN_PROGRESS', 'COMPLETED'],
+      default: 'READY'
     },
     order: { type: Number, default: 0 },
     priority: {
@@ -39,18 +57,22 @@ const taskSchema = new mongoose.Schema(
       default: null,
       index: true
     },
-    user: {
+    user: { // Creator user
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
       index: true
     },
-    category: {
+    category: { // Legacy category reference maintained for backward compatibility
       type: mongoose.Schema.Types.ObjectId,
       ref: "Category",
-      required: true,
+      default: null,
       index: true
     },
+    tags: [{
+      type: String,
+      trim: true
+    }],
     dueDate: {
       type: Date,
       default: null
@@ -59,7 +81,15 @@ const taskSchema = new mongoose.Schema(
       type: Date,
       default: null
     },
+    estimatedMinutes: {
+      type: Number,
+      default: 0
+    },
     estimatedCompletionTime: {
+      type: Number,
+      default: null
+    },
+    actualMinutes: {
       type: Number,
       default: 0
     },
@@ -79,5 +109,8 @@ const taskSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+taskSchema.index({ projectId: 1, milestoneId: 1 });
+taskSchema.index({ parentTaskId: 1 });
 
 module.exports = mongoose.model("Task", taskSchema);
