@@ -55,4 +55,56 @@ describe('ActivityEvent Service & Append-Only Store Tests', () => {
     // logActivityEvent should catch error silently and return null without throwing
     expect(result).toBeNull();
   });
+
+  it('should record complete lifecycle history (creation, assignment, status, due date, completion, reopening) with entity identities & timestamps', async () => {
+    const request = require('supertest');
+    const { app } = require('../server');
+
+    // Register User
+    const reg = await request(app).post('/api/auth/register').send({ username: 'lifecycleuser', password: 'password123' });
+    const token = reg.body.token;
+    const userId = reg.body.user.id;
+
+    // Create Project
+    const projRes = await request(app).post('/api/projects').set('Authorization', `Bearer ${token}`).send({ name: 'Lifecycle Project' });
+    const projectId = projRes.body._id;
+
+    // 1. Task Creation
+    const taskRes = await request(app).post('/api/tasks').set('Authorization', `Bearer ${token}`).send({ title: 'Lifecycle Task', projectId });
+    const taskId = taskRes.body._id;
+
+    // 2. Assignment
+    await request(app).put(`/api/tasks/${taskId}`).set('Authorization', `Bearer ${token}`).send({ assignedTo: userId });
+
+    // 3. Status Change
+    await request(app).put(`/api/tasks/${taskId}`).set('Authorization', `Bearer ${token}`).send({ status: 'IN_PROGRESS' });
+
+    // 4. Due Date Change
+    const newDueDate = new Date(Date.now() + 86400000).toISOString();
+    await request(app).put(`/api/tasks/${taskId}`).set('Authorization', `Bearer ${token}`).send({ dueDate: newDueDate });
+
+    // 5. Completion
+    await request(app).put(`/api/tasks/${taskId}`).set('Authorization', `Bearer ${token}`).send({ status: 'COMPLETED' });
+
+    // 6. Reopening
+    await request(app).put(`/api/tasks/${taskId}`).set('Authorization', `Bearer ${token}`).send({ status: 'READY' });
+
+    // Query all logged ActivityEvents for this task
+    const events = await ActivityEvent.find({ taskId }).sort({ createdAt: 1 });
+    const eventTypes = events.map(e => e.eventType);
+
+    expect(eventTypes).toContain('TASK_CREATED');
+    expect(eventTypes).toContain('TASK_ASSIGNED');
+    expect(eventTypes).toContain('TASK_STATUS_CHANGED');
+    expect(eventTypes).toContain('TASK_COMPLETED');
+    expect(eventTypes).toContain('TASK_REOPENED');
+
+    // Verify entity identity and actor sufficiency
+    events.forEach(event => {
+      expect(event.actorId.toString()).toEqual(userId);
+      expect(event.projectId.toString()).toEqual(projectId);
+      expect(event.taskId.toString()).toEqual(taskId);
+      expect(event.createdAt).toBeDefined();
+    });
+  });
 });

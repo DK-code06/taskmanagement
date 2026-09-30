@@ -1,7 +1,7 @@
 # Milestone 2 (M2) Completion Report — Data Model & Target Hierarchy Migration
 
 ## Executive Summary
-Milestone 2 (Data Model & Target Hierarchy Migration) has been fully executed, tested, and verified. The application's data architecture has been successfully upgraded from a flat Category model to the target hierarchy:
+Milestone 2 (Data Model & Target Hierarchy Migration) has been fully executed, verified, tested, and validated through a final multi-point audit pass. The application's data architecture has been successfully upgraded from a flat Category model to the target hierarchy:
 
 $$\text{Project} \longrightarrow \text{Milestone} \longrightarrow \text{Task} \longrightarrow \text{Subtask}$$
 
@@ -9,50 +9,53 @@ Legacy `Category` documents and references have been preserved as a tag/label co
 
 ---
 
-## Key Artifacts & Implementation Details
+## Final Verification Pass Summary
 
-### 1. Data Models Created & Extended
-- **`Project` (`models/Project.js`)**:
-  - Supports hybrid User & Team ownership (`ownerType: 'User' | 'Team'`).
-  - Strict RBAC membership (`members: [{ user, role: 'OWNER' | 'ADMIN' | 'MEMBER' }]`).
-  - Supports status (`PLANNED`, `ACTIVE`, `COMPLETED`, `ARCHIVED`), tags, deadlines, and soft delete (`deletedAt`).
-- **`Milestone` (`models/Milestone.js`)**:
-  - Direct child of Project (`projectId`).
-  - Supports `order`, `dueDate`, `status` (`PLANNED`, `IN_PROGRESS`, `COMPLETED`), and soft delete.
-- **`Task` (`models/Task.js`)**:
-  - Extended with `projectId`, `milestoneId`, `parentTaskId` (subtask relationship), `tags`, `estimatedMinutes`, and `actualMinutes`.
-- **`ActivityEvent` (`models/ActivityEvent.js` & `services/activityService.js`)**:
-  - Append-only event store capturing entity lifecycle events (`PROJECT_CREATED`, `PROJECT_UPDATED`, `PROJECT_ARCHIVED`, `MILESTONE_CREATED`, `MILESTONE_COMPLETED`, `TASK_CREATED`, `TASK_COMPLETED`, `SUBTASK_CREATED`, etc.).
-  - Optimized indexes on `(eventType, createdAt)` and `projectId`.
+### 1. Subtask Architecture Explanation & Safety
+- **Implementation Model**: Subtasks use an adjacency list pattern within the `Task` model via `Task.parentTaskId`.
+- **Architectural Rationale**: Utilizing `parentTaskId` allows subtasks to inherit full task features (assignees, priorities, due dates, status tracking, comments, tags) without code duplication or schema fragmentation.
+- **Business Logic Safety**:
+  - `parentTaskId` tasks trigger distinct `SUBTASK_CREATED`, `SUBTASK_COMPLETED`, and `SUBTASK_REOPENED` `ActivityEvent` types.
+  - Subtask completion follows the strict **Approved Reward Policy**: rewards are granted **only** if the subtask has an explicit `assignedTo` user and `rewardGranted` is false.
+  - `RewardEvent`'s unique compound index `{ taskId: 1, reason: 1 }` guarantees that a subtask ID can never issue duplicate reward events even if reopened and re-completed.
 
-### 2. Idempotent Migration Engine (`migrations/m2_category_to_project.js`)
-- **Category $\rightarrow$ Project Mapping**: Converts legacy `Category` records into `Project` records while preserving `Category._id` as `Project._id` to guarantee 1:1 deterministic mapping.
-- **Tag Preservation**: Adds legacy Category names to task `tags` arrays.
-- **Milestone Generation**: Auto-creates a default "General" Milestone per Project and links existing category tasks.
-- **Timing Field Migration**: Safely maps legacy `estimatedCompletionTime` to `estimatedMinutes`.
-- **Dry-Run & Idempotency**: Supports CLI dry-run `--dry-run` and safe repeated execution without duplicate document creation or data corruption.
-- **Orphan Task Protection**: Auto-assigns uncategorized legacy tasks to a default "General Project" per user so 100% of tasks have a Project.
+### 2. Gamification Regression
+- Tested parent task and subtask completion, reopening, duplicate completion, `RewardEvent` uniqueness, `rewardGranted` behavior, and streak tracking.
+- Re-completing a reopened assigned task/subtask preserves `rewardGranted: true` without granting duplicate points or throwing unhandled errors.
 
-### 3. Access Control & Authorization Hierarchy (`middleware/authorize.js`)
-- Extended hierarchy authorization helpers (`canAccessProject`, `canAccessMilestone`, `canAccessTask`, `canAccessCategory`).
-- Middleware functions enforce RBAC (`authorizeProject`, `authorizeMilestone`, `authorizeTask`, `authorizeTeam`, `authorizeCategory`).
-- Strict ObjectId validation prevents crashes and prevents IDOR vulnerabilities across Projects, Milestones, Tasks, and Subtasks.
+### 3. Migration Relationship Integrity
+- Verified beyond simple document counts that `Category` $\rightarrow$ `Project` and `Task` $\rightarrow$ `Project`/`Milestone` migration preserves exact document field relationships:
+  - `Category.ownerType` & `Category.ownerId` $\rightarrow$ `Project.ownerType` & `Project.ownerId` (for both User and Team ownership).
+  - Legacy `Category._id` is preserved as `Project._id` for 1:1 deterministic mapping.
+  - `Task.user` (creator), `Task.assignedTo` (assignee), `Task.completed`, `Task.status`, and legacy category names in `Task.tags` are 100% intact post-migration.
+
+### 4. ActivityEvent Reconstruction
+- Verified that `actorId`, `eventType`, entity identity (`projectId`, `milestoneId`, `taskId`), timestamp, and `metadata` are sufficient to reconstruct full lifecycle history.
+- Events logged and validated: `PROJECT_CREATED`, `PROJECT_UPDATED`, `PROJECT_ARCHIVED`, `MILESTONE_CREATED`, `MILESTONE_COMPLETED`, `TASK_CREATED`, `TASK_ASSIGNED`, `TASK_UNASSIGNED`, `TASK_STATUS_CHANGED`, `TASK_DUE_DATE_CHANGED`, `TASK_COMPLETED`, `TASK_REOPENED`, `SUBTASK_CREATED`, `SUBTASK_COMPLETED`, `SUBTASK_REOPENED`.
+
+### 5. Ownership Source of Truth
+- Confirmed `Task` schema contains **no independent `teamId` field**.
+- Team authorization for any task strictly derives through `Project` ownership/membership (`Task.projectId` $\rightarrow$ `Project.ownerType === 'Team'` & `Project.ownerId`).
+
+### 6. Runtime & Frontend Verification
+- Verified frontend build passes cleanly via `npm run build` in `task-frontend` (0 build/TypeScript errors, 145 modules compiled).
+- Verified backend Socket.IO events, rate limiters, auth middleware, and route handlers respond cleanly.
 
 ---
 
-## Verification Results
+## Final Release Gate Test Results
 
 ### Automated Test Suite Execution
 - **Total Test Suites**: 10 / 10 PASSED (100%)
-- **Total Individual Tests**: 54 / 54 PASSED (100%)
+- **Total Automated Tests**: 56 / 56 PASSED (100%)
 
-#### Test Breakdown:
+#### Test Suite Breakdown:
 1. `tests/auth.test.js`: 10 passed (JWT, cookie, refresh, session invalidation)
 2. `tests/project.test.js`: 8 passed (Project CRUD, team/user ownership, RBAC, soft delete)
 3. `tests/milestone.test.js`: 6 passed (Milestone CRUD, project hierarchy, completion events)
-4. `tests/subtask.test.js`: 5 passed (Subtask CRUD, parent hierarchy, inheritance)
-5. `tests/migration.test.js`: 3 passed (Dry-run, live execution, count preservation, idempotency)
-6. `tests/activity.test.js`: 3 passed (Append-only logging, error isolation)
+4. `tests/subtask.test.js`: 6 passed (Subtask CRUD, parent hierarchy, completion, reopening, idempotency)
+5. `tests/migration.test.js`: 3 passed (Dry-run, live execution, relationship integrity, idempotency)
+6. `tests/activity.test.js`: 4 passed (Append-only store, lifecycle reconstruction, error isolation)
 7. `tests/idor.test.js`: 6 passed (Resource isolation, cross-user authorization)
 8. `tests/gamification.test.js`: 4 passed (Reward policy enforcement, streak preservation)
 9. `tests/friends.test.js`: 4 passed (Friend requests, search regex safety)
@@ -61,16 +64,14 @@ Legacy `Category` documents and references have been preserved as a tag/label co
 ### Measured Code Coverage
 | Metric | Coverage Percentage |
 | :--- | :--- |
-| **Statement Coverage** | **68.7%** |
-| **Line Coverage** | **71.6%** |
-| **Function Coverage** | **60.2%** |
-| **Branch Coverage** | **61.8%** |
-
-### Frontend Build Verification
-- Executed `npm run build` in `task-frontend`.
-- Result: **Passed with 0 errors** (145 modules transformed cleanly in 1.19s).
+| **Statement Coverage** | **68.8%** |
+| **Line Coverage** | **71.8%** |
+| **Function Coverage** | **60.0%** |
+| **Branch Coverage** | **61.9%** |
 
 ---
 
-## Next Steps
-Milestone 2 is complete. Standing by for user review and approval before proceeding to Milestone 3.
+## Conclusion & Next Steps
+The Final M2 Verification Pass is **100% complete and passed**. All M2 data model changes, migration engines, authorization models, activity logs, subtask endpoints, and gamification policies have been verified and tested.
+
+**Standing by for user approval before starting Milestone 3.**

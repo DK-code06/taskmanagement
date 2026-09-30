@@ -341,6 +341,15 @@ module.exports = function(io) {
         }
 
         if (status !== undefined) {
+          if (status !== taskToUpdate.status) {
+            await logActivityEvent({
+              eventType: "TASK_STATUS_CHANGED",
+              actorId: req.user.id,
+              projectId: taskToUpdate.projectId,
+              taskId: taskToUpdate._id,
+              metadata: { oldStatus: taskToUpdate.status, newStatus: status }
+            });
+          }
           updateFields.status = status;
           updateFields.completed = (status === 'Done' || status === 'COMPLETED');
 
@@ -409,7 +418,7 @@ module.exports = function(io) {
             updateFields.completedAt = null;
 
             await logActivityEvent({
-              eventType: "TASK_REOPENED",
+              eventType: taskToUpdate.parentTaskId ? "SUBTASK_REOPENED" : "TASK_REOPENED",
               actorId: req.user.id,
               projectId: taskToUpdate.projectId,
               taskId: taskToUpdate._id

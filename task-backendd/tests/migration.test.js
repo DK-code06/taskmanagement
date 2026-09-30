@@ -97,17 +97,33 @@ describe('M2 Category -> Project/Tag Data Migration Engine Tests', () => {
     expect(proj2).not.toBeNull();
     expect(proj2.name).toEqual('Team Infrastructure');
     expect(proj2.ownerType).toEqual('Team');
+    expect(proj2.ownerId.toString()).toEqual(team._id.toString());
 
     // Verify Milestone creation
     const ms1 = await Milestone.findOne({ projectId: proj1._id, title: 'General' });
     expect(ms1).not.toBeNull();
 
-    // Verify Task updates
+    const ms2 = await Milestone.findOne({ projectId: proj2._id, title: 'General' });
+    expect(ms2).not.toBeNull();
+
+    // Verify Task 1 updates & relationship integrity
     const t1 = await Task.findById(task1._id);
     expect(t1.projectId.toString()).toEqual(proj1._id.toString());
     expect(t1.milestoneId.toString()).toEqual(ms1._id.toString());
+    expect(t1.user.toString()).toEqual(user._id.toString());
+    expect(t1.assignedTo.toString()).toEqual(user._id.toString());
+    expect(t1.completed).toEqual(task1.completed);
     expect(t1.tags).toContain('Frontend Work');
     expect(t1.estimatedMinutes).toEqual(120);
+
+    // Verify Task 2 updates & relationship integrity
+    const t2 = await Task.findById(task2._id);
+    expect(t2.projectId.toString()).toEqual(proj2._id.toString());
+    expect(t2.milestoneId.toString()).toEqual(ms2._id.toString());
+    expect(t2.user.toString()).toEqual(user._id.toString());
+    expect(t2.assignedTo.toString()).toEqual(user._id.toString());
+    expect(t2.completed).toEqual(task2.completed);
+    expect(t2.tags).toContain('Team Infrastructure');
 
     // Data counts integrity check
     expect(res.countsBefore.users).toEqual(res.countsAfter.users);

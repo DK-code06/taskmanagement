@@ -19,8 +19,10 @@ const activityEventSchema = new mongoose.Schema(
         "TASK_UNASSIGNED",
         "TASK_DUE_DATE_CHANGED",
         "TASK_POSTPONED",
+        "TASK_STATUS_CHANGED",
         "SUBTASK_CREATED",
-        "SUBTASK_COMPLETED"
+        "SUBTASK_COMPLETED",
+        "SUBTASK_REOPENED"
       ],
       index: true
     },

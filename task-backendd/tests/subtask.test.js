@@ -119,4 +119,46 @@ describe('Subtask & Hierarchy Access Authorization Tests', () => {
     expect(subRes.body.projectId.toString()).toEqual(projId);
     expect(subRes.body.milestoneId.toString()).toEqual(msId);
   });
+
+  it('should handle subtask completion, reopening, and log SUBTASK_COMPLETED and SUBTASK_REOPENED ActivityEvents', async () => {
+    // Create assigned subtask
+    const subRes = await request(app)
+      .post(`/api/tasks/${parentTaskId}/subtasks`)
+      .set('Authorization', `Bearer ${user1Token}`)
+      .send({ title: 'Completable Subtask', assignedTo: user1Id });
+    const subtaskId = subRes.body._id;
+
+    // Complete subtask
+    const completeRes = await request(app)
+      .put(`/api/tasks/${subtaskId}`)
+      .set('Authorization', `Bearer ${user1Token}`)
+      .send({ status: 'COMPLETED' });
+
+    expect(completeRes.statusCode).toEqual(200);
+    expect(completeRes.body.completed).toBe(true);
+
+    const completedEvents = await ActivityEvent.find({ taskId: subtaskId, eventType: 'SUBTASK_COMPLETED' });
+    expect(completedEvents).toHaveLength(1);
+
+    // Reopen subtask
+    const reopenRes = await request(app)
+      .put(`/api/tasks/${subtaskId}`)
+      .set('Authorization', `Bearer ${user1Token}`)
+      .send({ status: 'READY' });
+
+    expect(reopenRes.statusCode).toEqual(200);
+    expect(reopenRes.body.completed).toBe(false);
+
+    const reopenedEvents = await ActivityEvent.find({ taskId: subtaskId, eventType: 'SUBTASK_REOPENED' });
+    expect(reopenedEvents).toHaveLength(1);
+
+    // Re-complete subtask (Idempotency test on rewards)
+    const recompleteRes = await request(app)
+      .put(`/api/tasks/${subtaskId}`)
+      .set('Authorization', `Bearer ${user1Token}`)
+      .send({ status: 'COMPLETED' });
+
+    expect(recompleteRes.statusCode).toEqual(200);
+    expect(recompleteRes.body.rewardGranted).toBe(true);
+  });
 });
