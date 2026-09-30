@@ -1,151 +1,166 @@
 const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
-const Task = require('../models/Task');
 const Message = require('../models/Message');
-const mongoose = require('mongoose');
 
-// This function exports a router that has access to the io instance and userSockets map
-module.exports = function(io, userSockets) {
+module.exports = function(io) {
+    // Escape special characters for safe regular expression matching
+    const escapeRegex = (string) => {
+        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    };
+
     // Search for users to add as friends
     router.get('/search', async (req, res) => {
         try {
             const { query } = req.query;
-            if (!query) return res.json([]);
+            if (!query || !query.trim()) return res.json([]);
 
+            const sanitizedQuery = escapeRegex(query.trim());
             const currentUser = await User.findById(req.user.id);
             const friendUserIds = currentUser.friends.map(f => f.user);
 
             const users = await User.find({
-                username: { $regex: query, $options: 'i' },
-                _id: { $ne: req.user.id, $nin: friendUserIds } // Exclude self and existing friends/requests
+                username: { $regex: sanitizedQuery, $options: 'i' },
+                _id: { $ne: req.user.id, $nin: friendUserIds }
             }).select('username').limit(10);
 
             res.json(users);
         } catch (err) {
+            console.error("User search error:", err);
             res.status(500).json({ error: "Server error during user search" });
         }
     });
 
-    // Send a friend request and emit a real-time event
+    // Send a friend request
     router.post('/request/:userId', async (req, res) => {
         try {
             const recipientId = req.params.userId;
             const senderId = req.user.id;
+
+            // Reject self-request
+            if (recipientId === senderId) {
+                return res.status(400).json({ error: "You cannot send a friend request to yourself." });
+            }
             
-            // Check if a request already exists
             const recipient = await User.findById(recipientId);
-            if (recipient.friends.some(f => f.user.equals(senderId))) {
+            if (!recipient) {
+                return res.status(404).json({ error: "Recipient user not found." });
+            }
+
+            const sender = await User.findById(senderId);
+
+            // Check if request or friendship already exists in recipient's OR sender's list
+            const recipientAlreadyLinked = recipient.friends.some(f => f.user.equals(senderId));
+            const senderAlreadyLinked = sender.friends.some(f => f.user.equals(recipientId));
+
+            if (recipientAlreadyLinked || senderAlreadyLinked) {
                 return res.status(400).json({ error: "Request already sent or you are already friends." });
             }
 
-            // Update both users in the database
             await User.findByIdAndUpdate(senderId, { $push: { friends: { user: recipientId, status: 'sent' } } });
             await User.findByIdAndUpdate(recipientId, { $push: { friends: { user: senderId, status: 'pending' } } });
 
-            // Emit a notification to the recipient if they are currently online
-            const recipientSocketId = userSockets[recipientId];
-            if (recipientSocketId) {
-                const sender = await User.findById(senderId).select('username');
-                io.to(recipientSocketId).emit('friendRequest', {
-                    fromUser: sender,
-                });
-                console.log(`[Socket.IO] Sent friend request notification to User ${recipientId}`);
-            }
+            // Emit targeted real-time notification to recipient's room
+            io.to(`user:${recipientId}`).emit('friendRequest', {
+                fromUser: { _id: sender._id, username: sender.username }
+            });
 
-            res.json({ message: "Friend request sent" });
+            res.json({ message: "Friend request sent successfully" });
         } catch (err) {
+            console.error("Error sending friend request:", err);
             res.status(500).json({ error: "Failed to send friend request" });
         }
     });
 
-    // Accept a friend request
+    // Accept a friend request (requires current status === 'pending')
     router.put('/accept/:userId', async (req, res) => {
         try {
             const senderId = req.params.userId;
             const recipientId = req.user.id;
-            await User.updateOne({ _id: recipientId, 'friends.user': senderId }, { $set: { 'friends.$.status': 'accepted' } });
-            await User.updateOne({ _id: senderId, 'friends.user': recipientId }, { $set: { 'friends.$.status': 'accepted' } });
+
+            const recipient = await User.findById(recipientId);
+            const pendingRequest = recipient.friends.find(f => f.user.equals(senderId) && f.status === 'pending');
+
+            if (!pendingRequest) {
+                return res.status(400).json({ error: "No pending friend request found from this user." });
+            }
+
+            await User.updateOne(
+                { _id: recipientId, 'friends.user': senderId },
+                { $set: { 'friends.$.status': 'accepted' } }
+            );
+            await User.updateOne(
+                { _id: senderId, 'friends.user': recipientId },
+                { $set: { 'friends.$.status': 'accepted' } }
+            );
+
+            io.to(`user:${senderId}`).emit('friendRequestAccepted', {
+                byUser: { _id: recipient._id, username: recipient.username }
+            });
+
             res.json({ message: "Friend request accepted" });
-        } catch (err) { res.status(500).json({ error: "Failed to accept request" }); }
+        } catch (err) {
+            console.error("Error accepting friend request:", err);
+            res.status(500).json({ error: "Failed to accept request" });
+        }
     });
     
-    // Get friends list and pending requests, including unread counts
+    // Get friends list and pending requests
     router.get('/', async (req, res) => {
         try {
             const user = await User.findById(req.user.id).populate('friends.user', 'username');
+            if (!user) return res.status(404).json({ error: "User not found" });
+
             res.json({
-                friends: user.friends.filter(f => f.status === 'accepted'),
-                pendingRequests: user.friends.filter(f => f.status === 'pending')
+                friends: user.friends.filter(f => f && f.user && f.status === 'accepted'),
+                pendingRequests: user.friends.filter(f => f && f.user && f.status === 'pending')
             });
-        } catch (err) { res.status(500).json({ error: "Failed to fetch friends" }); }
+        } catch (err) {
+            console.error("Error fetching friends:", err);
+            res.status(500).json({ error: "Failed to fetch friends" });
+        }
     });
 
-    // Route to mark messages from a friend as read
+    // Mark messages from a friend as read
     router.put('/read-messages/:friendId', async (req, res) => {
         try {
             await User.updateOne(
                 { _id: req.user.id, 'friends.user': req.params.friendId },
                 { $set: { 'friends.$.unreadCount': 0 } }
             );
-            res.status(200).send({ message: "Messages marked as read." });
+            res.status(200).json({ message: "Messages marked as read." });
         } catch (err) {
             res.status(500).json({ error: "Failed to mark messages as read" });
         }
     });
 
-    // Get daily progress for all friends
-    router.get('/progress', async (req, res) => {
-        try {
-            const user = await User.findById(req.user.id);
-            const friendIds = user.friends.filter(f => f.status === 'accepted').map(f => f.user);
-            if (friendIds.length === 0) return res.json([]);
-
-            const startOfDay = new Date();
-            startOfDay.setHours(0, 0, 0, 0);
-            const endOfDay = new Date();
-            endOfDay.setHours(23, 59, 59, 999);
-
-            const progressData = await User.aggregate([
-                { $match: { _id: { $in: friendIds } } },
-                { $lookup: { from: 'tasks', localField: '_id', foreignField: 'user', as: 'tasks' } },
-                {
-                    $project: {
-                        username: 1,
-                        dailyCompleted: {
-                            $size: {
-                                $filter: {
-                                    input: '$tasks', as: 'task',
-                                    cond: { $and: [
-                                        { $eq: ['$$task.completed', true] },
-                                        { $gte: ['$$task.completedAt', startOfDay] },
-                                        { $lte: ['$$task.completedAt', endOfDay] }
-                                    ]}
-                                }
-                            }
-                        }
-                    }
-                }
-            ]);
-            res.json(progressData);
-        } catch (err) {
-            res.status(500).json({ error: "Failed to get friend progress" });
-        }
-    });
-
-    // Get chat history with a specific friend
+    // Get chat history with a specific friend with pagination limit
     router.get('/chat/:friendId', async (req, res) => {
         try {
+            const friendId = req.params.friendId;
+            const currentUser = await User.findById(req.user.id);
+            const isFriend = currentUser.friends.some(f => f.user.equals(friendId) && f.status === 'accepted');
+
+            if (!isFriend) {
+                return res.status(403).json({ error: "You can only view chat history with accepted friends." });
+            }
+
+            const limit = parseInt(req.query.limit) || 50;
             const messages = await Message.find({
                 $or: [
-                    { fromUser: req.user.id, toUser: req.params.friendId },
-                    { fromUser: req.params.friendId, toUser: req.user.id },
+                    { fromUser: req.user.id, toUser: friendId },
+                    { fromUser: friendId, toUser: req.user.id },
                 ]
-            }).sort({ createdAt: 1 });
-            res.json(messages);
-        } catch (err) { res.status(500).json({ error: "Failed to fetch chat history" }); }
+            })
+            .sort({ createdAt: -1 })
+            .limit(limit);
+
+            res.json(messages.reverse());
+        } catch (err) {
+            console.error("Error fetching chat history:", err);
+            res.status(500).json({ error: "Failed to fetch chat history" });
+        }
     });
 
     return router;
 };
-

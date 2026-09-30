@@ -1,6 +1,9 @@
 const express = require("express");
 const router = express.Router();
 const Task = require("../models/Task");
+const Team = require("../models/Team");
+const Category = require("../models/Category");
+const { authorizeTeam } = require("../middleware/authorize");
 const mongoose = require('mongoose');
 
 // GET /api/analytics - Get personal productivity stats for the logged-in user
@@ -8,20 +11,15 @@ router.get("/", async (req, res) => {
     try {
         const userId = new mongoose.Types.ObjectId(req.user.id);
 
-        // Get the date for the start of the current week (assuming Sunday is the first day)
         const today = new Date();
         const startOfWeek = new Date(today);
         startOfWeek.setDate(today.getDate() - today.getDay());
         startOfWeek.setHours(0, 0, 0, 0);
 
         const stats = await Task.aggregate([
-            // 1. Match all tasks created by the current user
-            { $match: { user: userId } },
-            
-            // 2. Use $facet to run multiple aggregation pipelines at once for efficiency
+            { $match: { user: userId, deletedAt: null } },
             {
                 $facet: {
-                    // Pipeline 1: Calculate total tasks and total completed
                     generalStats: [
                         {
                             $group: {
@@ -33,12 +31,10 @@ router.get("/", async (req, res) => {
                             }
                         }
                     ],
-                    // Pipeline 2: Count how many completed tasks fall into each priority
                     priorityStats: [
                         { $match: { completed: true } },
                         { $group: { _id: "$priority", count: { $sum: 1 } } }
                     ],
-                    // Pipeline 3: Count how many tasks were completed this week
                     weeklyStats: [
                         { 
                             $match: { 
@@ -52,7 +48,6 @@ router.get("/", async (req, res) => {
             }
         ]);
 
-        // 3. Format the raw aggregation results into a clean object
         const general = stats[0].generalStats[0] || { totalTasks: 0, totalCompleted: 0 };
         const priorities = stats[0].priorityStats || [];
         const weekly = stats[0].weeklyStats[0] || { completedThisWeek: 0 };
@@ -75,5 +70,62 @@ router.get("/", async (req, res) => {
     }
 });
 
-module.exports = router;
+// GET /api/analytics/team/:id - Get team productivity stats (Resolves Bug 10)
+router.get("/team/:id", authorizeTeam('Member'), async (req, res) => {
+    try {
+        const team = req.team;
+        const teamId = team._id;
 
+        // Find categories belonging to this team
+        const teamCategories = await Category.find({ ownerType: 'Team', ownerId: teamId }).select('_id');
+        const categoryIds = teamCategories.map(c => c._id);
+
+        // Aggregate tasks belonging to team categories or assigned to team members
+        const memberIds = team.members.map(m => m.user);
+
+        const tasks = await Task.find({
+            $or: [
+                { category: { $in: categoryIds } },
+                { assignedTo: { $in: memberIds } }
+            ],
+            deletedAt: null
+        }).populate('assignedTo', 'username');
+
+        const totalTasks = tasks.length;
+        const completedTasks = tasks.filter(t => t.completed).length;
+        const completionRate = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
+
+        // Breakdown of completed tasks per member
+        const completedByMemberMap = {};
+        team.members.forEach(m => {
+            const username = m.user.username || 'User';
+            completedByMemberMap[username] = 0;
+        });
+
+        tasks.filter(t => t.completed && t.assignedTo).forEach(t => {
+            const uname = t.assignedTo.username;
+            if (uname) {
+                completedByMemberMap[uname] = (completedByMemberMap[uname] || 0) + 1;
+            }
+        });
+
+        const completedByMember = Object.entries(completedByMemberMap).map(([username, count]) => ({
+            username,
+            count
+        }));
+
+        res.json({
+            teamId: team._id,
+            teamName: team.name,
+            totalTasks,
+            completedTasks,
+            completionRate,
+            completedByMember
+        });
+    } catch (err) {
+        console.error("Failed to fetch team analytics:", err);
+        res.status(500).json({ error: "Failed to fetch team analytics" });
+    }
+});
+
+module.exports = router;

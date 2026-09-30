@@ -1,6 +1,5 @@
 const mongoose = require("mongoose");
 
-// ✅ NEW: Define a sub-schema for comments
 const commentSchema = new mongoose.Schema({
   user: {
     type: mongoose.Schema.Types.ObjectId,
@@ -20,12 +19,12 @@ const commentSchema = new mongoose.Schema({
 
 const taskSchema = new mongoose.Schema(
   {
-    title: { type: String, required: true },
+    title: { type: String, required: true, trim: true },
     description: { type: String, default: "" },
     completed: { type: Boolean, default: false },
     status: {
       type: String,
-      enum: ['To Do', 'In Progress', 'Done'],
+      enum: ['To Do', 'In Progress', 'Done', 'READY', 'BLOCKED', 'COMPLETED'],
       default: 'To Do'
     },
     order: { type: Number, default: 0 },
@@ -37,31 +36,48 @@ const taskSchema = new mongoose.Schema(
     assignedTo: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      default: null
+      default: null,
+      index: true
     },
-    user: { // This is the creator of the task
+    user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true
+      required: true,
+      index: true
     },
     category: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Category",
-      required: true
+      required: true,
+      index: true
     },
     dueDate: {
       type: Date,
       default: null
     },
-    completedAt: {
-        type: Date,
-        default: null
+    startedAt: {
+      type: Date,
+      default: null
     },
-    // ✅ ADD THE COMMENTS ARRAY
-    comments: [commentSchema]
+    estimatedCompletionTime: {
+      type: Number,
+      default: 0
+    },
+    completedAt: {
+      type: Date,
+      default: null
+    },
+    rewardGranted: {
+      type: Boolean,
+      default: false
+    },
+    comments: [commentSchema],
+    deletedAt: {
+      type: Date,
+      default: null
+    }
   },
   { timestamps: true }
 );
 
 module.exports = mongoose.model("Task", taskSchema);
-

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Team = require('../models/Team');
 const User = require('../models/User');
+const { authorizeTeam } = require('../middleware/authorize');
 
 // POST /api/teams - Create a new team
 router.post('/', async (req, res) => {
@@ -14,7 +15,6 @@ router.post('/', async (req, res) => {
         const newTeam = new Team({
             name: name.trim(),
             createdBy: req.user.id,
-            // The creator is automatically added as the first member and an Admin
             members: [{
                 user: req.user.id,
                 role: 'Admin'
@@ -22,7 +22,8 @@ router.post('/', async (req, res) => {
         });
 
         await newTeam.save();
-        res.status(201).json(newTeam);
+        const populatedTeam = await Team.findById(newTeam._id).populate('members.user', 'username');
+        res.status(201).json(populatedTeam);
     } catch (err) {
         console.error("Error creating team:", err);
         res.status(500).json({ error: "Server error while creating team." });
@@ -33,8 +34,8 @@ router.post('/', async (req, res) => {
 router.get('/', async (req, res) => {
     try {
         const teams = await Team.find({ 'members.user': req.user.id })
-            .populate('members.user', 'username') // Populate member usernames
-            .populate('createdBy', 'username'); // Populate creator username
+            .populate('members.user', 'username')
+            .populate('createdBy', 'username');
 
         res.json(teams);
     } catch (err) {
@@ -43,36 +44,39 @@ router.get('/', async (req, res) => {
     }
 });
 
-// PUT /api/teams/:teamId/invite - Invite a friend to a team
-router.put('/:teamId/invite', async (req, res) => {
+// PUT /api/teams/:teamId/invite - Invite a friend to a team (Requires Admin role & Friend verification)
+router.put('/:teamId/invite', authorizeTeam('Admin'), async (req, res) => {
     try {
-        const { teamId } = req.params;
-        const { friendId } = req.body; // The ID of the user being invited
-
-        const team = await Team.findById(teamId);
-        if (!team) {
-            return res.status(404).json({ error: "Team not found." });
+        const { friendId } = req.body;
+        if (!friendId) {
+            return res.status(400).json({ error: "Friend ID is required." });
         }
 
-        // Security Check: Ensure the person inviting is a member of the team
-        const isMember = team.members.some(member => member.user.equals(req.user.id));
-        if (!isMember) {
-            return res.status(403).json({ error: "You are not a member of this team." });
+        const team = req.team;
+
+        // Verify friend exists and is in inviter's accepted friends list
+        const inviter = await User.findById(req.user.id);
+        const isAcceptedFriend = inviter.friends.some(f => f.user.equals(friendId) && f.status === 'accepted');
+
+        if (!isAcceptedFriend) {
+            return res.status(403).json({ error: "You can only invite users who are in your accepted friends list." });
         }
 
-        // Check if the friend is already a member
+        // Check if the user is already a member of the team
         const isAlreadyMember = team.members.some(member => member.user.equals(friendId));
         if (isAlreadyMember) {
             return res.status(400).json({ error: "This user is already a member of the team." });
         }
 
-        // Add the new member
+        // Add member
         team.members.push({ user: friendId, role: 'Member' });
         await team.save();
 
-        const updatedTeam = await Team.findById(teamId).populate('members.user', 'username');
+        const updatedTeam = await Team.findById(team._id)
+            .populate('members.user', 'username')
+            .populate('createdBy', 'username');
+            
         res.json(updatedTeam);
-
     } catch (err) {
         console.error("Error inviting user to team:", err);
         res.status(500).json({ error: "Failed to invite user." });
@@ -80,4 +84,3 @@ router.put('/:teamId/invite', async (req, res) => {
 });
 
 module.exports = router;
-

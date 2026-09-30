@@ -1,7 +1,6 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
-// This sub-schema defines the structure for an entry in a user's friends list.
 const friendSchema = new mongoose.Schema({
   user: {
     type: mongoose.Schema.Types.ObjectId,
@@ -10,15 +9,14 @@ const friendSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['pending', 'sent', 'accepted'], // Tracks friend request status
+    enum: ['pending', 'sent', 'accepted'],
     required: true
   },
   unreadCount: {
     type: Number,
-    default: 0 // Tracks unread chat messages from this friend
+    default: 0
   }
-}, { _id: false }); // _id: false means sub-documents won't get their own IDs
-
+}, { _id: false });
 
 const userSchema = new mongoose.Schema({
   username: {
@@ -32,7 +30,18 @@ const userSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-  // Gamification fields
+  timezone: {
+    type: String,
+    default: 'UTC'
+  },
+  sessionVersion: {
+    type: Number,
+    default: 1
+  },
+  refreshToken: {
+    type: String,
+    default: null
+  },
   points: {
     type: Number,
     default: 0
@@ -42,20 +51,20 @@ const userSchema = new mongoose.Schema({
     default: 0
   },
   lastCompletionDate: {
-    type: Date
+    type: Date,
+    default: null
   },
-  // Array to store friends and friend requests
-  friends: [friendSchema]
-});
+  friends: [friendSchema],
+  deletedAt: {
+    type: Date,
+    default: null
+  }
+}, { timestamps: true });
 
-// Mongoose middleware to automatically hash the password before saving a user
 userSchema.pre('save', async function (next) {
-  // Only hash the password if it has been modified (or is new)
   if (!this.isModified('password')) {
     return next();
   }
-  
-  // Hash the password with a salt round of 10
   this.password = await bcrypt.hash(this.password, 10);
   next();
 });

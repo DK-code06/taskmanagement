@@ -3,6 +3,7 @@ const router = express.Router();
 const Category = require("../models/Category");
 const Task = require("../models/Task");
 const Team = require("../models/Team");
+const { authorizeCategory } = require("../middleware/authorize");
 const mongoose = require('mongoose');
 
 // GET all categories (both personal and from the user's teams)
@@ -10,11 +11,9 @@ router.get("/", async (req, res) => {
     try {
         const userId = new mongoose.Types.ObjectId(req.user.id);
 
-        // Find all teams the user is a member of
-        const userTeams = await Team.find({ 'members.user': userId });
+        const userTeams = await Team.find({ 'members.user': userId }).select('_id');
         const teamIds = userTeams.map(team => team._id);
 
-        // Build the main query to find categories
         const categories = await Category.aggregate([
             {
                 $match: {
@@ -70,38 +69,26 @@ router.post("/", async (req, res) => {
         const categoryForResponse = { ...newCategory.toObject(), totalTasks: 0, completedTasks: 0 };
         res.status(201).json(categoryForResponse);
     } catch (err) {
-      console.error("❌ Error in POST /categories route:", err);
+      console.error("❌ Error creating category:", err);
       res.status(500).json({ error: "Server error while creating category" });
     }
 });
 
-// DELETE route with proper permission checks
-router.delete("/:id", async (req, res) => {
+// DELETE category with authorization and safe team lookup
+router.delete("/:id", authorizeCategory, async (req, res) => {
     try {
-        const { id } = req.params;
-        const userId = req.user.id;
-
-        const category = await Category.findById(id);
-        if (!category) {
-            return res.status(404).json({ error: "Category not found" });
-        }
-
-        // Security Check
-        let hasPermission = false;
-        if (category.ownerType === 'User' && category.ownerId.equals(userId)) {
-            hasPermission = true;
-        } else if (category.ownerType === 'Team') {
+        const category = req.category;
+        
+        // Extra check if ownerType === 'Team' and team is missing
+        if (category.ownerType === 'Team') {
             const team = await Team.findById(category.ownerId);
-            const member = team.members.find(m => m.user.equals(userId));
-            if (member) hasPermission = true;
+            if (!team) {
+                // Team is missing; allow category deletion cleanly
+            }
         }
 
-        if (!hasPermission) {
-            return res.status(403).json({ error: "You do not have permission to delete this category." });
-        }
-
-        await Task.deleteMany({ category: id });
-        await Category.findByIdAndDelete(id);
+        await Task.deleteMany({ category: category._id });
+        await Category.findByIdAndDelete(category._id);
         
         res.json({ message: "Category and its tasks deleted successfully" });
     } catch (err) {
@@ -110,31 +97,10 @@ router.delete("/:id", async (req, res) => {
     }
 });
 
-// PIN route with proper permission checks
-router.put("/:id/pin", async (req, res) => {
+// PIN category with authorization
+router.put("/:id/pin", authorizeCategory, async (req, res) => {
     try {
-        const { id } = req.params;
-        const userId = req.user.id;
-
-        const category = await Category.findById(id);
-        if (!category) {
-            return res.status(404).json({ error: "Category not found" });
-        }
-
-        let hasPermission = false;
-        if (category.ownerType === 'User' && category.ownerId.equals(userId)) {
-            hasPermission = true;
-        } else if (category.ownerType === 'Team') {
-            const team = await Team.findById(category.ownerId);
-            if (team && team.members.some(m => m.user.equals(userId))) {
-                hasPermission = true;
-            }
-        }
-
-        if (!hasPermission) {
-            return res.status(403).json({ error: "You do not have permission to pin this category." });
-        }
-        
+        const category = req.category;
         category.isPinned = !category.isPinned;
         await category.save();
         res.json(category);
@@ -144,10 +110,14 @@ router.put("/:id/pin", async (req, res) => {
     }
 });
 
-// REORDER route (Note: This only works for personal categories)
+// REORDER personal categories
 router.put("/reorder", async (req, res) => {
     try {
         const { categories } = req.body;
+        if (!Array.isArray(categories)) {
+          return res.status(400).json({ error: "Invalid payload: 'categories' must be an array" });
+        }
+
         const operations = categories.map(cat => ({
             updateOne: {
                 filter: { _id: cat.id, ownerType: 'User', ownerId: req.user.id },
@@ -165,4 +135,3 @@ router.put("/reorder", async (req, res) => {
 });
 
 module.exports = router;
-
