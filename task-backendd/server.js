@@ -25,6 +25,9 @@ const teamRoutes = require("./routes/teams");
 const analyticsRoutes = require("./routes/analytics");
 const projectRoutes = require("./routes/projects");
 const milestoneRoutes = require("./routes/milestones");
+const notificationRoutes = require("./routes/notifications");
+const { sendNotification } = require("./services/notificationService");
+const { startReminderWorker } = require("./services/reminderSchedulerService");
 
 dotenv.config();
 connectDB();
@@ -166,6 +169,19 @@ io.on("connection", (socket) => {
         { _id: toUser, "friends.user": fromUser },
         { $inc: { "friends.$.unreadCount": 1 } }
       );
+
+      // Dispatch offline / background chat notification
+      sendNotification({
+        recipient: toUser,
+        type: "CHAT_MESSAGE",
+        title: `Message from ${socket.username}`,
+        message: content.trim(),
+        entityType: "Message",
+        entityId: message._id,
+        actor: fromUser,
+        deduplicationKey: `chat:${message._id.toString()}`,
+        io
+      }).catch(err => console.error("[Socket.IO] Error dispatching chat notification:", err));
     } catch (error) {
       console.error("[Socket.IO] Error sending message:", error);
     }
@@ -186,6 +202,7 @@ app.use("/api/friends", auth, friendsRoutes(io));
 app.use("/api/analytics", auth, analyticsRoutes);
 app.use("/api/projects", auth, projectRoutes);
 app.use("/api/milestones", auth, milestoneRoutes);
+app.use("/api/notifications", auth, notificationRoutes);
 
 // Global Error Handler
 app.use((err, req, res, next) => {
@@ -198,6 +215,7 @@ app.use((err, req, res, next) => {
 
 // Start Server if executing directly
 if (require.main === module) {
+  startReminderWorker(io);
   server.listen(PORT, () => {
     console.log(`🚀 Server running at http://localhost:${PORT}`);
   });

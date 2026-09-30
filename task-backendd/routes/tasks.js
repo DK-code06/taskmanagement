@@ -6,6 +6,8 @@ const User = require("../models/User");
 const RewardEvent = require("../models/RewardEvent");
 const { authorizeTask, canAccessCategory, canAccessProject } = require("../middleware/authorize");
 const { logActivityEvent } = require("../services/activityService");
+const { sendNotification } = require("../services/notificationService");
+const { scheduleTaskReminder } = require("../services/reminderSchedulerService");
 const mongoose = require('mongoose');
 
 module.exports = function(io) {
@@ -321,6 +323,14 @@ module.exports = function(io) {
             });
           }
           updateFields.dueDate = dueDate;
+
+          if (dueDate) {
+            scheduleTaskReminder({
+              taskId: taskToUpdate._id,
+              userId: taskToUpdate.assignedTo || taskToUpdate.user,
+              scheduledAt: dueDate
+            }).catch(err => console.error("Error scheduling reminder:", err));
+          }
         }
 
         if (priority !== undefined) updateFields.priority = priority;
@@ -334,6 +344,20 @@ module.exports = function(io) {
             taskId: taskToUpdate._id,
             metadata: { assignedTo }
           });
+
+          if (assignedTo && assignedTo.toString() !== req.user.id) {
+            sendNotification({
+              recipient: assignedTo,
+              type: 'TASK_ASSIGNMENT',
+              title: 'Task Assigned',
+              message: `You have been assigned to task "${taskToUpdate.title}"`,
+              taskId: taskToUpdate._id,
+              projectId: taskToUpdate.projectId,
+              actor: req.user.id,
+              deduplicationKey: `assign:${taskToUpdate._id.toString()}:${assignedTo.toString()}`,
+              io
+            }).catch(err => console.error("Error sending assignment notification:", err));
+          }
         }
 
         if (estimatedMinutes !== undefined || estimatedCompletionTime !== undefined) {
@@ -370,6 +394,20 @@ module.exports = function(io) {
               taskId: taskToUpdate._id,
               metadata: { completedAt: updateFields.completedAt }
             });
+
+            if (taskToUpdate.user && taskToUpdate.user.toString() !== req.user.id) {
+              sendNotification({
+                recipient: taskToUpdate.user,
+                type: 'TASK_COMPLETION',
+                title: 'Task Completed',
+                message: `Task "${taskToUpdate.title}" was completed`,
+                taskId: taskToUpdate._id,
+                projectId: taskToUpdate.projectId,
+                actor: req.user.id,
+                deduplicationKey: `complete:${taskToUpdate._id.toString()}`,
+                io
+              }).catch(err => console.error("Error sending completion notification:", err));
+            }
 
             // Approved Reward Policy: Only assigned tasks receive completion rewards
             if (taskToUpdate.assignedTo && !taskToUpdate.rewardGranted) {
