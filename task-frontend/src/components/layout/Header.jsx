@@ -1,16 +1,19 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Button } from '../ui/Button';
 import { Avatar } from '../ui/Avatar';
-import { Drawer } from '../ui/Drawer';
 
 /**
- * Reusable App Header Component (M4.1 Layout Foundation)
+ * Reusable App Header Component (M4.1 Layout Foundation, updated in M4.4)
  */
 export const Header = ({
   user,
   onLogout,
   title = 'Task Management Platform',
   onMobileNavToggle,
+  onOpenNotifications,
+  unreadNotificationsCount = 0,
+  onOpenChat,
+  unreadChatCount = 0,
   children,
 }) => {
   return (
@@ -57,8 +60,68 @@ export const Header = ({
         </h1>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
         {children}
+
+        {onOpenNotifications && (
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label="Open notifications"
+            onClick={onOpenNotifications}
+            style={{ position: 'relative' }}
+          >
+            🔔
+            {unreadNotificationsCount > 0 && (
+              <span
+                style={{
+                  position: 'absolute',
+                  top: '2px',
+                  right: '2px',
+                  backgroundColor: 'var(--color-danger, #ef4444)',
+                  color: '#fff',
+                  fontSize: '10px',
+                  fontWeight: 'bold',
+                  borderRadius: '9999px',
+                  padding: '1px 5px',
+                  lineHeight: '1',
+                }}
+              >
+                {unreadNotificationsCount > 99 ? '99+' : unreadNotificationsCount}
+              </span>
+            )}
+          </Button>
+        )}
+
+        {onOpenChat && (
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label="Open chat"
+            onClick={onOpenChat}
+            style={{ position: 'relative' }}
+          >
+            💬
+            {unreadChatCount > 0 && (
+              <span
+                style={{
+                  position: 'absolute',
+                  top: '2px',
+                  right: '2px',
+                  backgroundColor: 'var(--color-primary, #3b82f6)',
+                  color: '#fff',
+                  fontSize: '10px',
+                  fontWeight: 'bold',
+                  borderRadius: '9999px',
+                  padding: '1px 5px',
+                  lineHeight: '1',
+                }}
+              >
+                {unreadChatCount > 99 ? '99+' : unreadChatCount}
+              </span>
+            )}
+          </Button>
+        )}
 
         {user && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
