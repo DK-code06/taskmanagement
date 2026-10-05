@@ -68,7 +68,7 @@ app.use("/api/", generalApiLimiter);
 
 // Health Check Endpoints
 app.get("/api/health", (req, res) => {
-  res.json({ status: "healthy", timestamp: new Date().toISOString() });
+  res.json({ status: "healthy", uptime: Math.floor(process.uptime()), timestamp: new Date().toISOString() });
 });
 
 app.get("/api/ready", async (req, res) => {
