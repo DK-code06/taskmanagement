@@ -26,6 +26,7 @@ const analyticsRoutes = require("./routes/analytics");
 const projectRoutes = require("./routes/projects");
 const milestoneRoutes = require("./routes/milestones");
 const notificationRoutes = require("./routes/notifications");
+const intelligenceRoutes = require("./routes/intelligence");
 const { sendNotification } = require("./services/notificationService");
 const { startReminderWorker } = require("./services/reminderSchedulerService");
 
@@ -203,6 +204,7 @@ app.use("/api/analytics", auth, analyticsRoutes);
 app.use("/api/projects", auth, projectRoutes);
 app.use("/api/milestones", auth, milestoneRoutes);
 app.use("/api/notifications", auth, notificationRoutes);
+app.use("/api/intelligence", auth, intelligenceRoutes);
 
 // Global Error Handler
 app.use((err, req, res, next) => {
