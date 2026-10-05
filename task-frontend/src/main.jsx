@@ -10,6 +10,9 @@ import { ToastProvider } from "./context/ToastContext"; // ✅ Add ToastProvider
 import "./index.css";
 import "./App.css";
 
+import { ProjectList, ProjectOverview } from "./components/project";
+import { AppShell } from "./components/layout";
+
 // This component protects routes that require a user to be logged in
 function PrivateRoute({ children }) {
   const token = localStorage.getItem("token");
@@ -29,6 +32,26 @@ ReactDOM.createRoot(document.getElementById("root")).render(
               element={
                 <PrivateRoute>
                   <Dashboard />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/projects"
+              element={
+                <PrivateRoute>
+                  <AppShell title="Task Management System">
+                    <ProjectList />
+                  </AppShell>
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/projects/:projectId"
+              element={
+                <PrivateRoute>
+                  <AppShell title="Task Management System">
+                    <ProjectOverview />
+                  </AppShell>
                 </PrivateRoute>
               }
             />
@@ -53,3 +76,4 @@ ReactDOM.createRoot(document.getElementById("root")).render(
     </BrowserRouter>
   </React.StrictMode>
 );
+

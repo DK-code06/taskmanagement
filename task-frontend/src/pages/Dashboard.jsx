@@ -560,6 +560,9 @@ export default function Dashboard() {
         <h1>My Dashboard</h1>
 
         <div className="user-info" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <Link to="/projects" className="btn btn-outline" style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            📁 Projects Directory
+          </Link>
           <span>
             Hello, <strong>{username}</strong>
           </span>
