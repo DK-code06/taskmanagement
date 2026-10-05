@@ -5,17 +5,17 @@ import { ProjectHeader } from './ProjectHeader';
 import { ProjectProgress } from './ProjectProgress';
 import { MilestoneSection } from './MilestoneSection';
 import { ProjectFormModal } from './ProjectFormModal';
-import { SubtaskList } from './SubtaskList';
-import { Card, CardHeader, CardBody } from '../ui/Card';
-import { Badge } from '../ui/Badge';
+import { KanbanBoard } from '../task/KanbanBoard';
+import { Card, CardBody } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Spinner } from '../ui/Spinner';
 import { EmptyState } from '../ui/EmptyState';
 import { useToast } from '../../context/ToastContext';
+import { jwtDecode } from 'jwt-decode';
 
 /**
- * ProjectOverview Component (M4.2)
- * Full project detail screen exposing Project -> Milestone -> Task -> Subtask hierarchy
+ * ProjectOverview Component (M4.3)
+ * Full project detail screen with Project -> Milestone -> Task -> Subtask hierarchy and Kanban Board
  */
 export const ProjectOverview = ({ apiBase = 'http://localhost:5000/api' }) => {
   const { projectId } = useParams();
@@ -27,14 +27,27 @@ export const ProjectOverview = ({ apiBase = 'http://localhost:5000/api' }) => {
   const [tasks, setTasks] = useState([]);
   const [teams, setTeams] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [errorState, setErrorState] = useState(null); // { status: 403 | 404 | 500, message: string }
+  const [errorState, setErrorState] = useState(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState(null);
 
   const token = localStorage.getItem('token');
   const authAxios = axios.create({
     baseURL: apiBase,
     headers: { Authorization: `Bearer ${token}` },
   });
+
+  useEffect(() => {
+    if (token) {
+      try {
+        const decoded = jwtDecode(token);
+        const normalizedId = decoded._id ?? decoded.id ?? decoded.userId;
+        setCurrentUserId(normalizedId);
+      } catch (err) {
+        console.error('Failed to decode token:', err);
+      }
+    }
+  }, [token]);
 
   const fetchData = useCallback(async () => {
     if (!token || !projectId) return;
@@ -76,7 +89,7 @@ export const ProjectOverview = ({ apiBase = 'http://localhost:5000/api' }) => {
     fetchData();
   }, [fetchData]);
 
-  // Project update handler
+  // Project handlers
   const handleUpdateProject = async (payload) => {
     try {
       const res = await authAxios.put(`/projects/${projectId}`, payload);
@@ -90,7 +103,6 @@ export const ProjectOverview = ({ apiBase = 'http://localhost:5000/api' }) => {
     }
   };
 
-  // Project archive handler
   const handleArchiveProject = async () => {
     try {
       await authAxios.delete(`/projects/${projectId}`);
@@ -102,7 +114,7 @@ export const ProjectOverview = ({ apiBase = 'http://localhost:5000/api' }) => {
     }
   };
 
-  // Milestone creation handler
+  // Milestone handlers
   const handleCreateMilestone = async (payload) => {
     try {
       await authAxios.post('/milestones', payload);
@@ -116,7 +128,6 @@ export const ProjectOverview = ({ apiBase = 'http://localhost:5000/api' }) => {
     }
   };
 
-  // Milestone update handler
   const handleUpdateMilestone = async (payload, milestoneId) => {
     try {
       await authAxios.put(`/milestones/${milestoneId}`, payload);
@@ -130,7 +141,6 @@ export const ProjectOverview = ({ apiBase = 'http://localhost:5000/api' }) => {
     }
   };
 
-  // Milestone delete handler
   const handleDeleteMilestone = async (milestoneId) => {
     try {
       await authAxios.delete(`/milestones/${milestoneId}`);
@@ -139,6 +149,56 @@ export const ProjectOverview = ({ apiBase = 'http://localhost:5000/api' }) => {
     } catch (err) {
       console.error('Failed to delete milestone:', err);
       addToast(err.response?.data?.error || 'Failed to delete milestone', { type: 'error' });
+    }
+  };
+
+  // Task handlers for Kanban
+  const handleTaskCreate = async (payload) => {
+    try {
+      await authAxios.post('/tasks', { ...payload, projectId });
+      addToast('Task created.', { type: 'success' });
+      const taskRes = await authAxios.get(`/tasks/project/${projectId}`);
+      setTasks(taskRes.data || []);
+    } catch (err) {
+      console.error('Failed to create task:', err);
+      addToast(err.response?.data?.error || 'Failed to create task', { type: 'error' });
+      throw err;
+    }
+  };
+
+  const handleTaskUpdate = async (taskId, payload) => {
+    try {
+      await authAxios.put(`/tasks/${taskId}`, payload);
+      addToast('Task updated.', { type: 'success', duration: 2000 });
+      const taskRes = await authAxios.get(`/tasks/project/${projectId}`);
+      setTasks(taskRes.data || []);
+    } catch (err) {
+      console.error('Failed to update task:', err);
+      addToast(err.response?.data?.error || 'Failed to update task', { type: 'error' });
+      throw err;
+    }
+  };
+
+  const handleTaskDelete = async (taskId) => {
+    try {
+      await authAxios.delete(`/tasks/${taskId}`);
+      addToast('Task deleted.', { type: 'info' });
+      setTasks((prev) => prev.filter((t) => (t._id || t.id) !== taskId));
+    } catch (err) {
+      console.error('Failed to delete task:', err);
+      addToast(err.response?.data?.error || 'Failed to delete task', { type: 'error' });
+    }
+  };
+
+  const handleAddComment = async (taskId, content) => {
+    try {
+      const res = await authAxios.post(`/tasks/${taskId}/comments`, { content });
+      addToast('Comment added.', { type: 'success' });
+      setTasks((prev) => prev.map((t) => ((t._id || t.id) === taskId ? res.data : t)));
+    } catch (err) {
+      console.error('Failed to add comment:', err);
+      addToast(err.response?.data?.error || 'Failed to add comment', { type: 'error' });
+      throw err;
     }
   };
 
@@ -210,57 +270,20 @@ export const ProjectOverview = ({ apiBase = 'http://localhost:5000/api' }) => {
         onDeleteMilestone={handleDeleteMilestone}
       />
 
-      {/* Project Tasks Summary Section */}
-      <div className="project-tasks-section" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
-        <h3 style={{ fontSize: 'var(--font-size-xl)', fontWeight: '600', color: 'var(--color-text-primary)', margin: 0 }}>
-          📋 Project Tasks ({totalTasks})
-        </h3>
-
-        {tasks.length === 0 ? (
-          <EmptyState
-            title="No Tasks in this Project"
-            description="Tasks assigned to this project will appear here alongside milestone progress."
-            icon="📋"
-          />
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
-            {tasks.map((t) => {
-              const priorityColors = {
-                High: 'danger',
-                Medium: 'warning',
-                Low: 'success',
-                'No Priority': 'neutral',
-              };
-
-              return (
-                <Card key={t._id} variant="default" style={{ padding: '0.75rem 1rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                      <span>{t.status === 'Done' ? '✅' : '📌'}</span>
-                      <strong style={{ fontSize: 'var(--font-size-md)', textDecoration: t.status === 'Done' ? 'line-through' : 'none' }}>
-                        {t.title}
-                      </strong>
-                    </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      {t.assignedTo && <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>👤 {t.assignedTo.username}</span>}
-                      <Badge variant={priorityColors[t.priority] || 'neutral'} size="sm">
-                        {t.priority || 'No Priority'}
-                      </Badge>
-                      <Badge variant={t.status === 'Done' ? 'success' : t.status === 'In Progress' ? 'warning' : 'neutral'} size="sm">
-                        {t.status}
-                      </Badge>
-                    </div>
-                  </div>
-
-                  {/* Subtasks Visibility */}
-                  <SubtaskList parentTaskId={t._id} authAxios={authAxios} />
-                </Card>
-              );
-            })}
-          </div>
-        )}
-      </div>
+      {/* Kanban Task Board Section */}
+      <KanbanBoard
+        tasks={tasks}
+        projects={[project]}
+        milestones={milestones}
+        teamMembers={teams.flatMap((t) => t.members || [])}
+        currentUserId={currentUserId}
+        currentProjectId={projectId}
+        authAxios={authAxios}
+        onTaskCreate={handleTaskCreate}
+        onTaskUpdate={handleTaskUpdate}
+        onTaskDelete={handleTaskDelete}
+        onAddComment={handleAddComment}
+      />
 
       {/* Project Edit Modal */}
       {editModalOpen && (
