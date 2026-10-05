@@ -10,27 +10,13 @@ const { sendNotification } = require("../services/notificationService");
 const { scheduleTaskReminder } = require("../services/reminderSchedulerService");
 const mongoose = require('mongoose');
 
+const { isSameDayInTimezone, areConsecutiveDaysInTimezone } = require('../services/timezoneService');
+
 module.exports = function(io) {
 
-    const isSameDay = (date1, date2) => {
-        if (!date1 || !date2) return false;
-        const d1 = new Date(date1);
-        const d2 = new Date(date2);
-        return d1.getUTCFullYear() === d2.getUTCFullYear() &&
-               d1.getUTCMonth() === d2.getUTCMonth() &&
-               d1.getUTCDate() === d2.getUTCDate();
-    };
+    const isSameDay = (date1, date2, timezone = 'UTC') => isSameDayInTimezone(date1, date2, timezone);
 
-    const areConsecutiveDays = (date1, date2) => {
-        if (!date1 || !date2) return false;
-        const d1 = new Date(date1);
-        const d2 = new Date(date2);
-        d1.setUTCHours(0, 0, 0, 0);
-        d2.setUTCHours(0, 0, 0, 0);
-        const diffTime = d1.getTime() - d2.getTime();
-        const diffDays = Math.round(diffTime / (1000 * 3600 * 24));
-        return diffDays === 1;
-    };
+    const areConsecutiveDays = (date1, date2, timezone = 'UTC') => areConsecutiveDaysInTimezone(date1, date2, timezone);
 
     const notifyTaskChange = (userIds, event = "taskUpdated", data = {}) => {
         const uniqueUsers = [...new Set(userIds.filter(Boolean).map(id => id.toString()))];
@@ -422,9 +408,10 @@ module.exports = function(io) {
                   const today = new Date();
                   const lastDate = rewardRecipient.lastCompletionDate;
 
-                  if (isSameDay(today, lastDate)) {
+                  const userTz = rewardRecipient.timezone || 'UTC';
+                  if (isSameDay(today, lastDate, userTz)) {
                     // Same day completion: preserve streak
-                  } else if (areConsecutiveDays(today, lastDate)) {
+                  } else if (areConsecutiveDays(today, lastDate, userTz)) {
                     rewardRecipient.streak = (rewardRecipient.streak || 0) + 1;
                   } else {
                     rewardRecipient.streak = 1;
