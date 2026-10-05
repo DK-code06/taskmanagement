@@ -711,3 +711,52 @@ body {
   font-size: 0.875rem;
 }
 
+/* M4.1 Design System Animations & Utilities */
+@keyframes ui-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes ui-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes ui-scale-up {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* Mobile responsive navigation & sidebar overrides for screens under 768px */
+@media (max-width: 768px) {
+  .app-sidebar {
+    display: none !important;
+  }
+  .app-shell-body {
+    flex-direction: column !important;
+    padding: var(--space-md) !important;
+  }
+  .user-greeting {
+    display: none !important;
+  }
+}
+
+@media (min-width: 769px) {
+  .mobile-nav-toggle {
+    display: none !important;
+  }
+}
+
+
