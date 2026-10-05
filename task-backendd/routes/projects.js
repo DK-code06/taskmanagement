@@ -3,7 +3,7 @@ const router = express.Router();
 const Project = require("../models/Project");
 const Team = require("../models/Team");
 const { authorizeProject } = require("../middleware/authorize");
-const { logActivityEvent } = require("../services/activityService");
+const { logActivityEvent, getActivitySummary, getProjectActivityMetrics } = require("../services/activityService");
 const mongoose = require("mongoose");
 
 // GET /api/projects - Get all projects accessible to the logged-in user
@@ -78,6 +78,41 @@ router.post("/", async (req, res) => {
 // GET /api/projects/:id - Get single project by ID with authorization
 router.get("/:id", authorizeProject('MEMBER'), async (req, res) => {
   res.json(req.project);
+});
+
+// GET /api/projects/:id/activity-summary - Get project activity summary and metrics (Phase 2-B)
+router.get("/:id/activity-summary", authorizeProject('MEMBER'), async (req, res) => {
+  try {
+    const { timeWindowDays = 30, limit = 50, startDate, endDate, eventTypes } = req.query;
+    const projectId = req.project._id;
+
+    const parsedLimit = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 200);
+    const parsedDays = Math.min(Math.max(parseInt(timeWindowDays, 10) || 30, 1), 365);
+    const parsedEventTypes = eventTypes ? (Array.isArray(eventTypes) ? eventTypes : eventTypes.split(',')) : null;
+
+    const metrics = await getProjectActivityMetrics({
+      projectId,
+      timeWindowDays: parsedDays
+    });
+
+    const recentActivity = await getActivitySummary({
+      projectId,
+      startDate,
+      endDate,
+      eventTypes: parsedEventTypes,
+      limit: parsedLimit
+    });
+
+    res.json({
+      projectId,
+      projectName: req.project.name,
+      metrics,
+      recentActivity
+    });
+  } catch (err) {
+    console.error("Error fetching project activity summary:", err);
+    res.status(500).json({ error: "Failed to fetch project activity summary" });
+  }
 });
 
 // PUT /api/projects/:id - Update project

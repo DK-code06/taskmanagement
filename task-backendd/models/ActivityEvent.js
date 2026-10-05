@@ -58,5 +58,6 @@ const activityEventSchema = new mongoose.Schema(
 );
 
 activityEventSchema.index({ eventType: 1, createdAt: -1 });
+activityEventSchema.index({ projectId: 1, eventType: 1, createdAt: -1 });
 
 module.exports = mongoose.model("ActivityEvent", activityEventSchema);
