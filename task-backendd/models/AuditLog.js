@@ -17,7 +17,10 @@ const auditLogSchema = new mongoose.Schema({
       'LOGOUT_ALL',
       'PASSWORD_CHANGED',
       'PERMISSION_DENIED',
-      'TOKEN_REFRESH'
+      'TOKEN_REFRESH',
+      'GITHUB_CONNECTED',
+      'GITHUB_DISCONNECTED',
+      'GITHUB_CONNECTION_FAILED'
     ],
     index: true
   },
