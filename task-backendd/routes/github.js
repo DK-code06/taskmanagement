@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const mongoose = require('mongoose');
 const GitHubConnection = require('../models/GitHubConnection');
 const GitHubRepositoryLink = require('../models/GitHubRepositoryLink');
+const GitHubSyncMapping = require('../models/GitHubSyncMapping');
 const { encryptToken, decryptToken } = require('../services/encryptionService');
 const { getUserRepositories, verifyAndFetchRepository } = require('../services/githubService');
 const { logAuditEvent } = require('../services/auditService');
@@ -390,6 +391,36 @@ function createGitHubProjectRoutes(io) {
     } catch (err) {
       console.error('❌ Error listing project GitHub repositories:', err);
       res.status(500).json({ error: 'Internal server error while fetching linked repositories' });
+    }
+  });
+
+  /**
+   * GET /api/projects/:projectId/github/tasks/:taskId
+   * Retrieves GitHub sync mappings and repository links for a specific task.
+   * Requires Project MEMBER access.
+   */
+  router.get('/:projectId/github/tasks/:taskId', authorizeProject('MEMBER'), async (req, res) => {
+    try {
+      const projectId = req.project._id;
+      const { taskId } = req.params;
+
+      if (!mongoose.Types.ObjectId.isValid(taskId)) {
+        return res.status(400).json({ error: 'Invalid task ID format' });
+      }
+
+      const syncMappings = await GitHubSyncMapping.find({ projectId, taskId }).sort({ createdAt: -1 });
+      const repositories = await GitHubRepositoryLink.find({ projectId }).sort({ createdAt: -1 });
+
+      res.json({
+        taskId,
+        projectId,
+        syncMappings,
+        pullRequests: syncMappings.filter(m => m.entityType === 'PR'),
+        repositories
+      });
+    } catch (err) {
+      console.error('❌ Error fetching task GitHub details:', err);
+      res.status(500).json({ error: 'Internal server error while fetching task GitHub details' });
     }
   });
 

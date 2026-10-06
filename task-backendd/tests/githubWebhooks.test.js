@@ -337,5 +337,86 @@ describe('Phase 2-H Milestone 3: GitHub Webhook Security & PR Synchronization Te
       expect(unmutatedTask.status).toBe('READY');
       expect(unmutatedTask.completed).toBe(false);
     });
+
+    it('handles PR merge on an already completed task idempotently without duplicate side effects', async () => {
+      // Set task to Done prior to webhook
+      await Task.updateOne({ _id: taskId }, { status: 'Done', completed: true, completedAt: new Date() });
+
+      const rawBody = JSON.stringify({
+        action: 'closed',
+        pull_request: {
+          number: 101,
+          title: `[TASK-${taskId}] Already completed task PR`,
+          html_url: 'https://github.com/testorg/testrepo/pull/101',
+          merged: true
+        },
+        repository: { id: 987654, full_name: 'testorg/testrepo' }
+      });
+      const signature = signPayload(rawBody);
+
+      const res = await request(app)
+        .post('/api/github/webhooks')
+        .set('Content-Type', 'application/json')
+        .set('x-hub-signature-256', signature)
+        .set('x-github-delivery', 'delivery-already-done-101')
+        .set('x-github-event', 'pull_request')
+        .send(rawBody);
+
+      expect(res.status).toBe(200);
+      expect(res.body.message).toBe('Task is already completed');
+      expect(res.body.taskId).toBe(taskId);
+
+      // Verify task remains Done
+      const finishedTask = await Task.findById(taskId);
+      expect(finishedTask.status).toBe('Done');
+      expect(finishedTask.completed).toBe(true);
+
+      // Verify no duplicate audit log for completion action
+      const auditCount = await AuditLog.countDocuments({ action: 'GITHUB_PR_SYNCHRONIZED' });
+      expect(auditCount).toBe(0);
+    });
+
+    it('handles distinct delivery ID for same PR event on completed task safely', async () => {
+      // First webhook completes task
+      const rawBody1 = JSON.stringify({
+        action: 'closed',
+        pull_request: {
+          number: 102,
+          title: `fixes #${taskId}`,
+          html_url: 'https://github.com/testorg/testrepo/pull/102',
+          merged: true
+        },
+        repository: { id: 987654, full_name: 'testorg/testrepo' }
+      });
+      const sig1 = signPayload(rawBody1);
+
+      const res1 = await request(app)
+        .post('/api/github/webhooks')
+        .set('Content-Type', 'application/json')
+        .set('x-hub-signature-256', sig1)
+        .set('x-github-delivery', 'delivery-first-102')
+        .set('x-github-event', 'pull_request')
+        .send(rawBody1);
+
+      expect(res1.status).toBe(200);
+      expect(res1.body.message).toMatch(/Task auto-completed/);
+
+      // Second webhook has a DISTINCT delivery ID but same payload
+      const sig2 = signPayload(rawBody1);
+      const res2 = await request(app)
+        .post('/api/github/webhooks')
+        .set('Content-Type', 'application/json')
+        .set('x-hub-signature-256', sig2)
+        .set('x-github-delivery', 'delivery-distinct-102')
+        .set('x-github-event', 'pull_request')
+        .send(rawBody1);
+
+      expect(res2.status).toBe(200);
+      expect(res2.body.message).toBe('Task is already completed');
+
+      // Verify only 1 audit log was created (no duplicate side effects)
+      const auditCount = await AuditLog.countDocuments({ action: 'GITHUB_PR_SYNCHRONIZED' });
+      expect(auditCount).toBe(1);
+    });
   });
 });
