@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Modal } from '../ui/Modal';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
@@ -6,6 +6,8 @@ import { Input } from '../ui/Input';
 import { TaskStatusBadge } from './TaskStatusBadge';
 import { TaskPriorityBadge } from './TaskPriorityBadge';
 import { SubtaskList } from './SubtaskList';
+import { AIDecomposeModal } from '../ai/AIDecomposeModal';
+import { AISummarizeWidget } from '../ai/AISummarizeWidget';
 
 /**
  * TaskDetails Component (M4.3)
@@ -23,6 +25,17 @@ export const TaskDetails = ({
 }) => {
   const [newComment, setNewComment] = useState('');
   const [submittingComment, setSubmittingComment] = useState(false);
+  const [aiConsentEnabled, setAiConsentEnabled] = useState(false);
+  const [showDecomposeModal, setShowDecomposeModal] = useState(false);
+  const [subtaskRefreshKey, setSubtaskRefreshKey] = useState(0);
+
+  useEffect(() => {
+    if (isOpen && authAxios) {
+      authAxios.get('/ai/status')
+        .then((res) => setAiConsentEnabled(Boolean(res.data?.userConsentEnabled)))
+        .catch(() => setAiConsentEnabled(false));
+    }
+  }, [isOpen, authAxios]);
 
   if (!task) return null;
 
@@ -98,11 +111,47 @@ export const TaskDetails = ({
           </div>
         )}
 
+        {/* AI Summary Widget */}
+        <AISummarizeWidget
+          task={task}
+          authAxios={authAxios}
+          userConsentEnabled={aiConsentEnabled}
+          onConsentEnable={() => setShowDecomposeModal(true)}
+        />
+
         {/* Subtasks Section */}
         <div>
-          <h5 style={{ fontSize: 'var(--font-size-sm)', fontWeight: '600', marginBottom: '0.25rem' }}>Subtasks</h5>
-          <SubtaskList parentTaskId={_id || task.id} authAxios={authAxios} teamMembers={teamMembers} />
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+            <h5 style={{ fontSize: 'var(--font-size-sm)', fontWeight: '600', margin: 0 }}>Subtasks</h5>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowDecomposeModal(true)}
+              style={{ fontSize: 'var(--font-size-xs)', padding: '2px 8px' }}
+            >
+              ✨ AI Subtask Suggestions
+            </Button>
+          </div>
+          <SubtaskList key={subtaskRefreshKey} parentTaskId={_id || task.id} authAxios={authAxios} teamMembers={teamMembers} />
         </div>
+
+        {/* AI Decompose Modal */}
+        <AIDecomposeModal
+          isOpen={showDecomposeModal}
+          onClose={() => setShowDecomposeModal(false)}
+          task={task}
+          authAxios={authAxios}
+          userConsentEnabled={aiConsentEnabled}
+          onSubtasksAdded={() => setSubtaskRefreshKey((k) => k + 1)}
+          onConsentEnable={async () => {
+            try {
+              await authAxios.put('/user/preferences/ai', { aiConsent: true });
+              setAiConsentEnabled(true);
+            } catch (err) {
+              console.error('Failed to enable AI consent:', err);
+            }
+          }}
+        />
 
         {/* Comments Section */}
         <div style={{ borderTop: '1px solid var(--color-border-subtle)', paddingTop: 'var(--space-md)' }}>
