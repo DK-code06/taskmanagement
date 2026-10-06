@@ -36,7 +36,10 @@ const { createGitHubWebhookRoutes } = require("./routes/githubWebhooks");
 const { sendNotification } = require("./services/notificationService");
 const { startReminderWorker } = require("./services/reminderSchedulerService");
 
+const validateEnv = require("./config/validateEnv");
+
 dotenv.config();
+validateEnv();
 connectDB();
 
 const app = express();
@@ -45,9 +48,28 @@ const server = http.createServer(app);
 // Environment & Security Config
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || "http://localhost:5173";
 const PORT = process.env.PORT || 5000;
+const isProd = process.env.NODE_ENV === "production";
 
-// Security Middlewares
-app.use(helmet());
+// Security Middlewares - Explicit Helmet Content Security Policy (CSP) & HSTS (Phase 3-B P1-2)
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", "ws:", "wss:", "http:", "https:"],
+      fontSrc: ["'self'", "data:"],
+      objectSrc: ["'none'"],
+      upgradeInsecureRequests: isProd ? [] : null
+    }
+  },
+  strictTransportSecurity: isProd ? {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true
+  } : false
+}));
 app.use(cookieParser());
 app.use(cors({
   origin: [CLIENT_ORIGIN, "http://localhost:5173", "http://127.0.0.1:5173"],

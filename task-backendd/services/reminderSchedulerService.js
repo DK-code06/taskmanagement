@@ -57,7 +57,19 @@ async function processPendingReminders(io = null) {
 
   let executedCount = 0;
 
-  for (const job of dueJobs) {
+  for (const candidateJob of dueJobs) {
+    // Atomic status locking: Transition status from 'PENDING' to 'PROCESSING'
+    const job = await ReminderJob.findOneAndUpdate(
+      { _id: candidateJob._id, status: 'PENDING' },
+      { $set: { status: 'PROCESSING', updatedAt: new Date() } },
+      { new: true }
+    );
+
+    // If another concurrent worker already claimed or processed the job, skip it
+    if (!job) {
+      continue;
+    }
+
     try {
       const task = await Task.findById(job.taskId);
       const user = await User.findById(job.userId);
@@ -91,6 +103,8 @@ async function processPendingReminders(io = null) {
       job.retryCount = (job.retryCount || 0) + 1;
       if (job.retryCount >= 3) {
         job.status = 'FAILED';
+      } else {
+        job.status = 'PENDING';
       }
       await job.save();
     }

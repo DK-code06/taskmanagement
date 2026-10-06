@@ -234,6 +234,12 @@ module.exports = function(io) {
         }
 
         const task = req.task;
+
+        // Guard rail against uncontrolled document growth (Max 200 comments per task)
+        if (task.comments && task.comments.length >= 200) {
+          return res.status(400).json({ error: "Maximum comment limit (200) reached for this task." });
+        }
+
         const newComment = { user: req.user.id, content: content.trim() };
         task.comments.push(newComment);
         await task.save();

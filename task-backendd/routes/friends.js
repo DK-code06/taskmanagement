@@ -50,6 +50,14 @@ module.exports = function(io) {
 
             const sender = await User.findById(senderId);
 
+            // Guard rail against uncontrolled document growth (Max 500 friends)
+            if (sender.friends && sender.friends.length >= 500) {
+                return res.status(400).json({ error: "Maximum friend limit (500) reached." });
+            }
+            if (recipient.friends && recipient.friends.length >= 500) {
+                return res.status(400).json({ error: "Recipient user has reached maximum friend limit (500)." });
+            }
+
             // Check if request or friendship already exists in recipient's OR sender's list
             const recipientAlreadyLinked = recipient.friends.some(f => f.user.equals(senderId));
             const senderAlreadyLinked = sender.friends.some(f => f.user.equals(recipientId));

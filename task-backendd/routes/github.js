@@ -22,7 +22,10 @@ function getUserId(user) {
  * Format: `userId:timestamp:nonce:signature`
  */
 function generateOAuthState(userId) {
-  const secret = process.env.GITHUB_CLIENT_SECRET || process.env.JWT_SECRET || 'github_oauth_secret';
+  const secret = process.env.GITHUB_CLIENT_SECRET || process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error('Server secret configuration missing for OAuth state signing.');
+  }
   const timestamp = Date.now();
   const nonce = crypto.randomBytes(16).toString('hex');
   const payload = `${userId}:${timestamp}:${nonce}`;
@@ -36,6 +39,9 @@ function generateOAuthState(userId) {
  */
 function verifyOAuthState(stateString, userId) {
   if (!stateString || typeof stateString !== 'string' || !userId) return false;
+
+  const secret = process.env.GITHUB_CLIENT_SECRET || process.env.JWT_SECRET;
+  if (!secret) return false;
 
   const parts = stateString.split(':');
   if (parts.length !== 4) return false;
@@ -54,7 +60,6 @@ function verifyOAuthState(stateString, userId) {
   }
 
   // Recalculate HMAC signature
-  const secret = process.env.GITHUB_CLIENT_SECRET || process.env.JWT_SECRET || 'github_oauth_secret';
   const payload = `${stateUserId}:${timestampStr}:${nonce}`;
   const expectedSignature = crypto.createHmac('sha256', secret).update(payload).digest('hex');
 
