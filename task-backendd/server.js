@@ -27,6 +27,7 @@ const projectRoutes = require("./routes/projects");
 const milestoneRoutes = require("./routes/milestones");
 const notificationRoutes = require("./routes/notifications");
 const intelligenceRoutes = require("./routes/intelligence");
+const recommendationRoutes = require("./routes/recommendations");
 const { sendNotification } = require("./services/notificationService");
 const { startReminderWorker } = require("./services/reminderSchedulerService");
 
@@ -202,6 +203,7 @@ app.use("/api/teams", auth, teamRoutes);
 app.use("/api/friends", auth, friendsRoutes(io));
 app.use("/api/analytics", auth, analyticsRoutes);
 app.use("/api/projects", auth, projectRoutes);
+app.use("/api/projects", auth, recommendationRoutes);
 app.use("/api/milestones", auth, milestoneRoutes);
 app.use("/api/notifications", auth, notificationRoutes);
 app.use("/api/intelligence", auth, intelligenceRoutes);

@@ -6,6 +6,7 @@ import { ProjectProgress } from './ProjectProgress';
 import { MilestoneSection } from './MilestoneSection';
 import { ProjectFormModal } from './ProjectFormModal';
 import { KanbanBoard } from '../task/KanbanBoard';
+import ProjectRecommendationsWidget from '../recommendations/ProjectRecommendationsWidget';
 import { Card, CardBody } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Spinner } from '../ui/Spinner';
@@ -259,6 +260,9 @@ export const ProjectOverview = ({ apiBase = 'http://localhost:5000/api' }) => {
           <ProjectProgress completedTasks={completedTasks} totalTasks={totalTasks} size="lg" />
         </CardBody>
       </Card>
+
+      {/* Advisory Project Recommendations */}
+      <ProjectRecommendationsWidget projectId={projectId} authAxios={authAxios} />
 
       {/* Milestones Section */}
       <MilestoneSection
