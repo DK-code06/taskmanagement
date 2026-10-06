@@ -1,8 +1,12 @@
 const express = require('express');
 const crypto = require('crypto');
+const mongoose = require('mongoose');
 const GitHubConnection = require('../models/GitHubConnection');
+const GitHubRepositoryLink = require('../models/GitHubRepositoryLink');
 const { encryptToken, decryptToken } = require('../services/encryptionService');
+const { getUserRepositories, verifyAndFetchRepository } = require('../services/githubService');
 const { logAuditEvent } = require('../services/auditService');
+const { authorizeProject } = require('../middleware/authorize');
 
 /**
  * Helper to safely extract user ID from req.user (supports id or _id).
@@ -64,7 +68,7 @@ function verifyOAuthState(stateString, userId) {
   }
 }
 
-module.exports = function createGitHubRoutes(io) {
+function createGitHubRoutes(io) {
   const router = express.Router();
 
   /**
@@ -336,9 +340,261 @@ module.exports = function createGitHubRoutes(io) {
     }
   });
 
+  /**
+   * GET /api/github/repositories
+   * Retrieves repositories accessible to the authenticated GitHub user.
+   */
+  router.get('/repositories', async (req, res) => {
+    try {
+      const currentUserId = getUserId(req.user);
+      const connection = await GitHubConnection.findOne({ userId: currentUserId });
+      if (!connection) {
+        return res.status(404).json({ error: 'No connected GitHub account found' });
+      }
+
+      const repositories = await getUserRepositories(connection.encryptedAccessToken, {
+        page: parseInt(req.query.page, 10) || 1,
+        per_page: parseInt(req.query.per_page, 10) || 100
+      });
+
+      res.json({ repositories });
+    } catch (err) {
+      console.error('❌ Error fetching GitHub repositories:', err.message);
+      if (err.status) {
+        return res.status(err.status).json({ error: err.message });
+      }
+      res.status(500).json({ error: 'Internal server error while retrieving GitHub repositories' });
+    }
+  });
+
   return router;
+}
+
+/**
+ * Creates Project-level GitHub Repository linking routes.
+ * Mounted at `/api/projects` in server.js.
+ */
+function createGitHubProjectRoutes(io) {
+  const router = express.Router({ mergeParams: true });
+
+  /**
+   * GET /api/projects/:projectId/github/repositories
+   * Lists GitHub repositories linked to a project. Requires Project MEMBER access.
+   */
+  router.get('/:projectId/github/repositories', authorizeProject('MEMBER'), async (req, res) => {
+    try {
+      const projectId = req.project._id;
+      const repoLinks = await GitHubRepositoryLink.find({ projectId }).sort({ createdAt: -1 });
+
+      res.json({ repositories: repoLinks });
+    } catch (err) {
+      console.error('❌ Error listing project GitHub repositories:', err);
+      res.status(500).json({ error: 'Internal server error while fetching linked repositories' });
+    }
+  });
+
+  // Alias GET route
+  router.get('/:projectId/github/link', authorizeProject('MEMBER'), async (req, res) => {
+    try {
+      const projectId = req.project._id;
+      const repoLinks = await GitHubRepositoryLink.find({ projectId }).sort({ createdAt: -1 });
+      res.json({ repositories: repoLinks });
+    } catch (err) {
+      res.status(500).json({ error: 'Internal server error while fetching linked repositories' });
+    }
+  });
+
+  /**
+   * POST /api/projects/:projectId/github/repositories
+   * Links a GitHub repository to a project. Requires Project ADMIN role & server-side GitHub access check.
+   */
+  router.post('/:projectId/github/repositories', authorizeProject('ADMIN'), async (req, res) => {
+    try {
+      const currentUserId = getUserId(req.user);
+      const projectId = req.project._id;
+
+      let { owner, name, fullName, githubRepoId, autoCloseOnPRMerge } = req.body;
+
+      if (!owner || !name) {
+        if (fullName && fullName.includes('/')) {
+          const parts = fullName.split('/');
+          owner = parts[0];
+          name = parts[1];
+        } else {
+          await logAuditEvent({
+            userId: currentUserId,
+            action: 'GITHUB_REPO_LINK_FAILED',
+            req,
+            details: { projectId, reason: 'Missing repository owner or name' }
+          });
+          return res.status(400).json({ error: 'Repository owner and name (or fullName) are required' });
+        }
+      }
+
+      // Check if user has connected GitHub account
+      const connection = await GitHubConnection.findOne({ userId: currentUserId });
+      if (!connection) {
+        await logAuditEvent({
+          userId: currentUserId,
+          action: 'GITHUB_REPO_LINK_FAILED',
+          req,
+          details: { projectId, reason: 'No connected GitHub account' }
+        });
+        return res.status(400).json({ error: 'Connected GitHub account required to link repositories' });
+      }
+
+      // Server-side GitHub repository access verification (DO NOT trust frontend claims)
+      let repoMeta;
+      try {
+        repoMeta = await verifyAndFetchRepository(connection.encryptedAccessToken, owner, name);
+      } catch (verifyErr) {
+        await logAuditEvent({
+          userId: currentUserId,
+          action: 'GITHUB_REPO_LINK_FAILED',
+          req,
+          details: { projectId, owner, name, reason: verifyErr.message }
+        });
+        const status = verifyErr.status || 403;
+        return res.status(status).json({ error: verifyErr.message || 'GitHub repository access verification failed' });
+      }
+
+      // If githubRepoId supplied, verify it matches canonical GitHub ID
+      if (githubRepoId && githubRepoId.toString() !== repoMeta.githubRepoId) {
+        await logAuditEvent({
+          userId: currentUserId,
+          action: 'GITHUB_REPO_LINK_FAILED',
+          req,
+          details: { projectId, owner, name, reason: 'Repository ID mismatch' }
+        });
+        return res.status(400).json({ error: 'Provided repository ID does not match canonical GitHub repository' });
+      }
+
+      // Check duplicate repository link for this project
+      const existingLink = await GitHubRepositoryLink.findOne({
+        projectId: projectId,
+        githubRepoId: repoMeta.githubRepoId
+      });
+
+      if (existingLink) {
+        await logAuditEvent({
+          userId: currentUserId,
+          action: 'GITHUB_REPO_LINK_FAILED',
+          req,
+          details: { projectId, githubRepoId: repoMeta.githubRepoId, reason: 'Duplicate repository link' }
+        });
+        return res.status(409).json({ error: 'This GitHub repository is already linked to this project' });
+      }
+
+      const repoLink = await GitHubRepositoryLink.create({
+        projectId: projectId,
+        githubRepoId: repoMeta.githubRepoId,
+        owner: repoMeta.owner,
+        name: repoMeta.name,
+        fullName: repoMeta.fullName,
+        private: repoMeta.private,
+        defaultBranch: repoMeta.defaultBranch,
+        autoCloseOnPRMerge: autoCloseOnPRMerge !== undefined ? Boolean(autoCloseOnPRMerge) : true,
+        linkedBy: currentUserId,
+        linkedAt: new Date()
+      });
+
+      await logAuditEvent({
+        userId: currentUserId,
+        action: 'GITHUB_REPO_LINKED',
+        req,
+        details: { projectId, githubRepoId: repoMeta.githubRepoId, fullName: repoMeta.fullName }
+      });
+
+      if (io) {
+        io.to(`project:${projectId.toString()}`).emit('githubRepoLinked', repoLink);
+      }
+
+      res.status(201).json({
+        message: 'Repository linked successfully',
+        link: repoLink
+      });
+    } catch (err) {
+      console.error('❌ Error linking GitHub repository:', err);
+      const currentUserId = getUserId(req.user);
+      await logAuditEvent({
+        userId: currentUserId,
+        action: 'GITHUB_REPO_LINK_FAILED',
+        req,
+        details: { reason: err.message }
+      });
+      res.status(500).json({ error: 'Internal server error while linking GitHub repository' });
+    }
+  });
+
+  // Alias POST route
+  router.post('/:projectId/github/link', authorizeProject('ADMIN'), async (req, res, next) => {
+    // Forward to the main handler logic above by rewriting url or invoking handler
+    req.url = `/${req.params.projectId}/github/repositories`;
+    router.handle(req, res, next);
+  });
+
+  /**
+   * DELETE /api/projects/:projectId/github/repositories/:repositoryId
+   * Unlinks a GitHub repository from a project. Requires Project ADMIN role.
+   */
+  router.delete('/:projectId/github/repositories/:repositoryId', authorizeProject('ADMIN'), async (req, res) => {
+    try {
+      const currentUserId = getUserId(req.user);
+      const projectId = req.project._id;
+      const repositoryIdParam = req.params.repositoryId;
+
+      const filter = { projectId };
+      if (mongoose.Types.ObjectId.isValid(repositoryIdParam)) {
+        filter.$or = [{ _id: repositoryIdParam }, { githubRepoId: repositoryIdParam }];
+      } else {
+        filter.githubRepoId = repositoryIdParam;
+      }
+
+      const link = await GitHubRepositoryLink.findOne(filter);
+      if (!link) {
+        return res.status(404).json({ error: 'Repository link not found for this project' });
+      }
+
+      await GitHubRepositoryLink.deleteOne({ _id: link._id });
+
+      await logAuditEvent({
+        userId: currentUserId,
+        action: 'GITHUB_REPO_UNLINKED',
+        req,
+        details: { projectId, githubRepoId: link.githubRepoId, fullName: link.fullName }
+      });
+
+      if (io) {
+        io.to(`project:${projectId.toString()}`).emit('githubRepoUnlinked', {
+          projectId,
+          githubRepoId: link.githubRepoId
+        });
+      }
+
+      res.json({
+        message: 'Repository unlinked successfully',
+        unlinkedRepoId: link.githubRepoId
+      });
+    } catch (err) {
+      console.error('❌ Error unlinking GitHub repository:', err);
+      res.status(500).json({ error: 'Internal server error while unlinking GitHub repository' });
+    }
+  });
+
+  // Alias DELETE route
+  router.delete('/:projectId/github/unlink/:repositoryId', authorizeProject('ADMIN'), async (req, res, next) => {
+    req.url = `/${req.params.projectId}/github/repositories/${req.params.repositoryId}`;
+    router.handle(req, res, next);
+  });
+
+  return router;
+}
+
+module.exports = function createGitHubRoutesWrapper(io) {
+  return createGitHubRoutes(io);
 };
 
-// Export helper functions for testing
+module.exports.createGitHubRoutes = createGitHubRoutes;
+module.exports.createGitHubProjectRoutes = createGitHubProjectRoutes;
 module.exports.generateOAuthState = generateOAuthState;
 module.exports.verifyOAuthState = verifyOAuthState;

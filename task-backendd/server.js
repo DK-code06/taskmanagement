@@ -31,7 +31,7 @@ const recommendationRoutes = require("./routes/recommendations");
 const aiRoutes = require("./routes/ai");
 const focusRoutes = require("./routes/focus");
 const messageRoutes = require("./routes/messages");
-const githubRoutes = require("./routes/github");
+const { createGitHubRoutes, createGitHubProjectRoutes } = require("./routes/github");
 const { sendNotification } = require("./services/notificationService");
 const { startReminderWorker } = require("./services/reminderSchedulerService");
 
@@ -215,7 +215,8 @@ app.use("/api/intelligence", auth, intelligenceRoutes);
 app.use("/api/ai", auth, aiRoutes);
 app.use("/api/user", auth, aiRoutes);
 app.use("/api/focus", auth, focusRoutes(io));
-app.use("/api/github", auth, githubRoutes(io));
+app.use("/api/github", auth, createGitHubRoutes(io));
+app.use("/api/projects", auth, createGitHubProjectRoutes(io));
 
 // Global Error Handler
 app.use((err, req, res, next) => {

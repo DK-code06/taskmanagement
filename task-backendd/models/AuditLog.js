@@ -20,7 +20,10 @@ const auditLogSchema = new mongoose.Schema({
       'TOKEN_REFRESH',
       'GITHUB_CONNECTED',
       'GITHUB_DISCONNECTED',
-      'GITHUB_CONNECTION_FAILED'
+      'GITHUB_CONNECTION_FAILED',
+      'GITHUB_REPO_LINKED',
+      'GITHUB_REPO_UNLINKED',
+      'GITHUB_REPO_LINK_FAILED'
     ],
     index: true
   },
