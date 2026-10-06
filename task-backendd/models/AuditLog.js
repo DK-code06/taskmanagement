@@ -23,7 +23,12 @@ const auditLogSchema = new mongoose.Schema({
       'GITHUB_CONNECTION_FAILED',
       'GITHUB_REPO_LINKED',
       'GITHUB_REPO_UNLINKED',
-      'GITHUB_REPO_LINK_FAILED'
+      'GITHUB_REPO_LINK_FAILED',
+      'GITHUB_WEBHOOK_RECEIVED',
+      'GITHUB_WEBHOOK_INVALID_SIGNATURE',
+      'GITHUB_WEBHOOK_UNMAPPED_REPO',
+      'GITHUB_PR_SYNCHRONIZED',
+      'GITHUB_SYNC_FAILED'
     ],
     index: true
   },
