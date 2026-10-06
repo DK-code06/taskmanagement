@@ -4,6 +4,7 @@ import { Drawer } from '../ui/Drawer';
 import { ConversationList } from './ConversationList';
 import { MessageList } from './MessageList';
 import { MessageComposer } from './MessageComposer';
+import { MessageSearchInput } from './MessageSearchInput';
 import { Button } from '../ui/Button';
 
 /**
@@ -147,6 +148,26 @@ export const ChatDrawer = ({
     });
   };
 
+  const handleSelectSearchResult = (result) => {
+    const currentId = currentUser?.id || currentUser?._id;
+    const friendUser = (result.fromUser?._id === currentId || result.fromUser === currentId)
+      ? result.toUser
+      : result.fromUser;
+
+    if (friendUser) {
+      const targetId = friendUser._id || friendUser;
+      const friendObj = friends.find((f) => (f.user?._id || f.user) === targetId);
+      if (friendObj) {
+        setSelectedFriend(friendObj.user || friendObj);
+      } else {
+        setSelectedFriend({
+          _id: targetId,
+          username: friendUser.username || 'Friend',
+        });
+      }
+    }
+  };
+
   return (
     <Drawer
       isOpen={isOpen}
@@ -156,6 +177,13 @@ export const ChatDrawer = ({
       size="420px"
     >
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%', margin: '-1rem' }}>
+        {/* Global Message Search Bar */}
+        <MessageSearchInput
+          authAxios={authAxios}
+          onSelectResult={handleSelectSearchResult}
+          activeFriendId={selectedFriend?._id || selectedFriend?.id}
+        />
+
         {selectedFriend ? (
           <React.Fragment>
             {/* Sub-header to switch back to conversation list */}

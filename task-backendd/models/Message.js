@@ -18,6 +18,10 @@ const messageSchema = new mongoose.Schema({
     required: true,
     trim: true
   }
-}, { timestamps: true }); // timestamps adds createdAt and updatedAt fields automatically
+}, { timestamps: true });
+
+messageSchema.index({ content: "text" });
+messageSchema.index({ fromUser: 1, createdAt: -1 });
+messageSchema.index({ toUser: 1, createdAt: -1 });
 
 module.exports = mongoose.model('Message', messageSchema);

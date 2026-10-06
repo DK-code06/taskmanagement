@@ -30,6 +30,7 @@ const intelligenceRoutes = require("./routes/intelligence");
 const recommendationRoutes = require("./routes/recommendations");
 const aiRoutes = require("./routes/ai");
 const focusRoutes = require("./routes/focus");
+const messageRoutes = require("./routes/messages");
 const { sendNotification } = require("./services/notificationService");
 const { startReminderWorker } = require("./services/reminderSchedulerService");
 
@@ -203,6 +204,7 @@ app.use("/api/categories", auth, categoryRoutes);
 app.use("/api/leaderboard", auth, leaderboardRoutes);
 app.use("/api/teams", auth, teamRoutes);
 app.use("/api/friends", auth, friendsRoutes(io));
+app.use("/api/messages", auth, messageRoutes(io));
 app.use("/api/analytics", auth, analyticsRoutes);
 app.use("/api/projects", auth, projectRoutes);
 app.use("/api/projects", auth, recommendationRoutes);
