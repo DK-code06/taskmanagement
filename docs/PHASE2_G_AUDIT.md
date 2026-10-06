@@ -1,10 +1,11 @@
-# Phase 2-G Architecture & Security Audit: Secure Message Search
+# Phase 2-G Architecture & Security Audit: Secure Message Search (Revision)
 
 ## 1. Executive Summary & Baseline Verification
 
 ### Verified Production Checkpoint
 - **Authoritative Baseline Tag**: `phase2-f-stable`
 - **Authoritative Baseline Commit**: `b8daf7a9cca040263769f289b19311c0c627e137`
+- **Current Audit Commit**: `4c3b6c0cda6f968a68a647599a0b425a07d8d169`
 - **Git Working Tree**: Clean
 - **Test Baseline**:
   - Backend: 24 / 24 test suites passed (147 / 147 tests)
@@ -13,62 +14,44 @@
 
 ---
 
-## 2. Existing Chat Architecture Audit Findings
+## 2. Re-Evaluation of Search Engine: MongoDB `$text` vs `$regex`
 
-### A. Backend Architecture (`task-backendd`)
-1. **Message Model (`models/Message.js`)**:
-   - Fields: `fromUser` (`ObjectId`, ref `User`), `toUser` (`ObjectId`, ref `User`), `content` (`String`), `createdAt`, `updatedAt`.
-   - Simple, lightweight direct messaging schema between two users.
-2. **Friends & Chat Routes (`routes/friends.js`)**:
-   - `GET /api/friends/chat/:friendId`: Returns chat history between logged-in user and an accepted friend.
-   - Enforces friendship check: `currentUser.friends.some(f => f.user.equals(friendId) && f.status === 'accepted')`.
-   - Contains pre-existing regex escaping utility `escapeRegex(string)`:
-     ```javascript
-     const escapeRegex = (string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-     ```
-3. **Socket.IO Chat Real-Time Transport (`server.js`)**:
-   - Handles `sendMessage`, `joinRoom`, and `receiveMessage` Socket.IO events.
-   - Restricts messages to verified accepted friends (`isFriend` check).
+> [!IMPORTANT]
+> **Production Search Engine Decision: MongoDB Native `$text` Index**
+> Unanchored case-insensitive regular expression searches (`$regex: ...`, `$options: 'i'`) cannot utilize standard B-tree index prefixes. On a growing `Message` collection, `$regex` forces MongoDB to perform full collection scans ($O(N)$ complexity), resulting in high CPU utilization, memory pressure, and degraded query response times.
 
-### B. Frontend Architecture (`task-frontend`)
-1. **Chat Drawer (`components/chat/ChatDrawer.jsx`)**:
-   - Drawer container displaying active friend conversations or single active friend chat thread.
-2. **Message Components (`MessageList.jsx`, `MessageComposer.jsx`, `ConversationList.jsx`)**:
-   - Render chat history bubbles, typing indicators, and message submission forms.
+### Evaluation of Options
 
----
+| Search Engine Option | Performance & Scaling | Operational Complexity | Typo / Substring Behavior | Decision |
+|---|---|---|---|---|
+| **Option A: MongoDB Native `$text` Index** | **High ($O(\log N)$ text index scan)** | **Zero (Built-in)** | **Word stems & phrase search** | **RECOMMENDED (MVP)** |
+| **Option B: Unanchored `$regex`** | Poor ($O(N)$ collection scan) | Zero | Substring / Infix matching | ❌ Rejected for Prod |
+| **Option C: MongoDB Atlas Search** | High | Medium (Cloud-only) | Full Fuzzy & Typo | Deferred (Future P2) |
+| **Option D: External Engine (Elasticsearch)**| High | Very High (New cluster) | Full Fuzzy & Semantic | ❌ Out of Scope |
 
-## 3. Existing Message Data Model & Search Scope
-
-### Current Data Model
-| Field | Type | Description | Searchable |
-|---|---|---|---|
-| `_id` | `ObjectId` | Unique message identifier | No |
-| `fromUser` | `ObjectId` | Sender user ID | Filter-only |
-| `toUser` | `ObjectId` | Recipient user ID | Filter-only |
-| `content` | `String` | Message text content | **YES** |
-| `createdAt` | `Date` | Timestamp message was sent | Sort/Filter |
-| `updatedAt` | `Date` | Timestamp message was updated | Sort/Filter |
-
-### Search Scope Boundaries
-- **Direct Messages Only**: Users can ONLY search messages in conversations where they are either the sender (`fromUser === userId`) or recipient (`toUser === userId`).
-- **Global & Scoped Search**:
-  - Global Search: Search across all DMs belonging to the logged-in user.
-  - Scoped Search: Search within a specific friend's conversation (`friendId`).
+### Native `$text` Capabilities & Explicit Limitations
+- **Capabilities**:
+  - Tokenized word matching and root stemming (e.g., searching "deploy" matches "deployment", "deployed").
+  - Exact phrase matching using quoted strings (e.g., `"release candidate"`).
+  - Relevance ranking via MongoDB `textScore`.
+- **Explicit Limitations**:
+  - **No arbitrary infix/substring matching**: Searching "auth" will **not** match "authentication" (requires full word or stem).
+  - **No typo tolerance or fuzzy search**: Misspelled words (e.g., "deplyment") will not yield results.
+  - **No semantic / vector search**: AI embeddings are out of scope.
 
 ---
 
-## 4. Security & IDOR Audit
+## 3. Authorization & IDOR Architecture
 
 > [!CRITICAL]
 > **Database-Constrained Authorization Rule**
-> The database query ITSELF must strictly enforce ownership boundaries. Under no circumstances may authorization rely on post-fetch JavaScript filtering or frontend hiding.
+> Authorization constraints MUST be applied directly to the MongoDB query framing. `friendId` is strictly a filter parameter and MUST NEVER be trusted as an authorization boundary.
 
-### Database Query Constraints
-Every search request must construct a MongoDB query framed by the user's ID:
+### Database Query Construction
+Every search request frames the query using the authenticated user's ID:
 
 ```javascript
-const queryCondition = {
+const searchCondition = {
   $and: [
     {
       $or: [
@@ -77,104 +60,81 @@ const queryCondition = {
       ]
     },
     {
-      content: { $regex: escapedSearchTerm, $options: 'i' }
+      $text: { $search: query }
     }
   ]
 };
 ```
 
-If a user supplies an optional `friendId` filter:
-1. Verify `friendId` is a valid accepted friend (or `req.user.id`).
-2. Constrain query: `{ $or: [{ fromUser: req.user.id, toUser: friendId }, { fromUser: friendId, toUser: req.user.id }] }`.
-
-This guarantees 0% cross-user message leakage, even if a malicious user alters query parameters or guesses conversation IDs.
-
----
-
-## 5. Search Engine Evaluation
-
-| Criterion | Option A: MongoDB Native `$text` Index | Option B: MongoDB Atlas Search | Option C: External Search (Elasticsearch) | Option D: Indexed `$regex` + `escapeRegex` |
-|---|---|---|---|---|
-| **Dependencies** | None (Built-in) | Cloud Atlas Only | High (New Service) | None (Built-in) |
-| **Operational Complexity**| Zero | Low (Cloud only) | Very High | Zero |
-| **Substring Matching** | Whole word stem only | Full fuzzy | Full fuzzy | Exact substring |
-| **Security / IDOR** | Native `$or` filter | Native pipeline | Manual sync filter | Native `$or` filter |
-| **Local Dev Support** | Full | Partial / Cloud | Requires Docker | Full |
-| **Recommendation** | **Suitable** | Optional Cloud | ❌ Excess Burden | **RECOMMENDED (MVP)** |
-
-### Conclusion & Recommendation
-MongoDB Native Query with `$regex` (sanitized using existing `escapeRegex`) or Native `$text` search index is the **simplest, safest, and most production-appropriate solution**. Zero new external services or npm dependencies are needed.
+If an optional `friendId` filter is provided:
+1. Validate `friendId` format (valid MongoDB `ObjectId`).
+2. Apply scoping: `{ $or: [{ fromUser: req.user.id, toUser: friendId }, { fromUser: friendId, toUser: req.user.id }] }`.
+3. If the specified `friendId` does not match conversations where `req.user.id` is a participant, the query naturally evaluates to 0 results, eliminating cross-user leakage.
 
 ---
 
-## 6. ReDoS & Query Validation Security
+## 4. Resolution of Historical DM Policy (ADR 8)
 
-### ReDoS Mitigation
-- User input MUST be passed through `escapeRegex(query.trim())` before building the MongoDB `$regex` condition.
-- Enforce strict server-side query length limits:
-  - Minimum length: `2` characters.
-  - Maximum length: `100` characters.
-  - Reject whitespace-only or empty queries (`HTTP 400 Bad Request`).
+### Final MVP Decision: Historical DM Persistence
+- **Policy**: Historical 1-on-1 direct messages remain searchable by both original participants (`fromUser` and `toUser`) even if friendship status is subsequently removed.
+- **Audit Findings**:
+  - Inspection of `models/Message.js` confirms that messages currently have **no soft-delete (`deletedAt`) or hard-delete semantics**. DMs are permanent historical records of communication between two users.
+  - Maintaining searchability for historical DMs ensures **100% parity** between normal chat history retrieval (`GET /api/friends/chat/:friendId`) and search access (`GET /api/messages/search`), avoiding any access discrepancy.
 
 ---
 
-## 7. Proposed API Contract
+## 5. Index Strategy & Redundancy Prevention
+
+To support fast, authorized text search without creating redundant B-tree indexes, the following minimal index set is proposed for `models/Message.js`:
+
+1. **Text Search Index**:
+   ```javascript
+   messageSchema.index({ content: "text" });
+   ```
+2. **User Conversation & Order Indexes**:
+   ```javascript
+   messageSchema.index({ fromUser: 1, createdAt: -1 });
+   messageSchema.index({ toUser: 1, createdAt: -1 });
+   ```
+
+### Rationale
+- The single-field B-tree indexes on `fromUser` and `toUser` accelerate direct message retrieval for normal chat threads and compound with `$or` authorization filters.
+- The `content: "text"` index accelerates word-stem text evaluation across the collection.
+
+---
+
+## 6. Proposed API Contract & Validation
 
 ```http
 GET /api/messages/search?q=<query>&friendId=<optional>&limit=20&before=<createdAt_iso>
 Authorization: Bearer <jwt_token>
 ```
 
-### Request Parameters
-- `q` (required, string, 2-100 chars): Search term.
-- `friendId` (optional, string ObjectId): Scope search to specific friend conversation.
-- `limit` (optional, integer, default 20, max 50): Page size.
-- `before` (optional, ISO date string): Cursor pagination marker.
-
-### Response Shape
-```json
-{
-  "query": "deployment",
-  "total": 1,
-  "results": [
-    {
-      "_id": "60d5ecb9f123456789abcdef",
-      "fromUser": { "_id": "60d5ecb9f123456789abc001", "username": "alice" },
-      "toUser": { "_id": "60d5ecb9f123456789abc002", "username": "bob" },
-      "content": "The deployment pipeline passed all backend tests.",
-      "createdAt": "2026-10-06T09:30:00.000Z"
-    }
-  ]
-}
-```
+### Validation Rules
+- `q`: Required string, length **2 to 100 characters**. Whitespace-only queries return `HTTP 400 Bad Request`.
+- `limit`: Integer between 1 and 50 (default: 20).
+- `before`: Optional ISO date string for cursor pagination.
 
 ---
 
-## 8. Pagination & Data Minimization
-
-- **Cursor Pagination**: Uses `createdAt` ISO string cursor (`before`) for stable, scalable performance without offset degradation.
-- **Data Minimization**: Returns only necessary display fields (`_id`, `fromUser`, `toUser`, `content`, `createdAt`). Excludes sensitive user metadata or security tokens.
-
----
-
-## 9. Scope Categorization
+## 7. Scope Categorization
 
 ### P0 — Must Resolve Before Coding
 - Database-level query authorization constraint (`$or: [{ fromUser }, { toUser }]`).
-- ReDoS protection via `escapeRegex` and 2-100 char limit bounds.
+- Server-side query validation (2-100 chars).
+- MongoDB `$text` index definition on `Message.content`.
 
 ### P1 — Required for Phase 2-G MVP
-- `GET /api/messages/search` API endpoint.
+- `GET /api/messages/search` API endpoint with cursor pagination.
 - Search input bar in `ChatDrawer.jsx`.
-- Results list with message snippets and timestamps.
-- Click-to-jump navigation opening the target conversation thread.
+- Results list rendering matching snippets, sender, and timestamps.
+- Click-to-jump thread navigation opening target chat.
 
 ### P2 — Future Enhancements
-- Highlighting matched search terms in message text.
-- Filter by date range (e.g. last 7 days, last 30 days).
+- Date range filter (last 7 days, last 30 days).
+- Quoted phrase helper UI.
 
 ### P3 — Explicitly Out of Scope
-- AI semantic search / vector search.
-- Image OCR or attachment search.
-- Voice message transcription search.
+- Unanchored `$regex` scans in production.
 - External search engine clusters (Elasticsearch/OpenSearch).
+- AI vector / semantic search, OCR, voice transcription.

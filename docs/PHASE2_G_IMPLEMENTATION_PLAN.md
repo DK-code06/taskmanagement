@@ -1,4 +1,4 @@
-# Phase 2-G Implementation Plan: Secure Message Search
+# Phase 2-G Implementation Plan: Secure Message Search (Revision)
 
 ## Overview
 This implementation plan defines the step-by-step technical roadmap for building Phase 2-G (Secure Message Search) upon explicit authorization. No application code is modified during this audit phase.
@@ -8,8 +8,9 @@ This implementation plan defines the step-by-step technical roadmap for building
 ## Step-by-Step Technical Roadmap
 
 ### Step 1: Database Indexes (`task-backendd/models/Message.js`) [MODIFY]
-- Add compound indexes for message search performance:
+- Define native `$text` index and user B-tree indexes for message search performance:
   ```javascript
+  messageSchema.index({ content: "text" });
   messageSchema.index({ fromUser: 1, createdAt: -1 });
   messageSchema.index({ toUser: 1, createdAt: -1 });
   ```
@@ -17,19 +18,18 @@ This implementation plan defines the step-by-step technical roadmap for building
 ### Step 2: Search Controller & Route (`task-backendd/routes/friends.js`) [MODIFY]
 - Implement `GET /api/messages/search`:
   - Validate query parameter `q` (min 2, max 100 chars).
-  - Sanitize query using `escapeRegex(q.trim())`.
   - Build database-constrained query:
     ```javascript
     const searchFilter = {
       $and: [
         { $or: [{ fromUser: req.user.id }, { toUser: req.user.id }] },
-        { content: { $regex: sanitizedQuery, $options: 'i' } }
+        { $text: { $search: q.trim() } }
       ]
     };
     ```
-  - Apply optional `friendId` scope if passed.
+  - Apply optional `friendId` filter if passed (verify format).
   - Apply cursor pagination (`before` ISO date string) and limit (default 20, max 50).
-  - Return populated message search results.
+  - Return populated message search results sorted by `textScore` / `createdAt`.
 
 ### Step 3: Frontend Search Components (`task-frontend`) [NEW]
 - Create `src/components/chat/MessageSearchInput.jsx`:
@@ -39,11 +39,11 @@ This implementation plan defines the step-by-step technical roadmap for building
 
 ### Step 4: Chat Drawer Integration (`task-frontend/src/components/chat/ChatDrawer.jsx`) [MODIFY]
 - Render `MessageSearchInput` at top of `ChatDrawer`.
-- When a search result is selected, set `selectedFriend` and highlight/focus the matching message.
+- When a search result is selected, set `selectedFriend` and open the target conversation thread.
 
 ### Step 5: Automated Test Suites [NEW]
 - Backend Jest suite: `task-backendd/tests/messageSearch.test.js`
-  - Tests query validation, IDOR isolation, cross-user leakage prevention, pagination, and performance.
+  - Tests query length validation, IDOR isolation, cross-user leakage prevention, historical DM persistence, pagination, and `$text` search behavior.
 - Frontend Vitest suite: `task-frontend/src/components/chat/__tests__/messageSearch.test.jsx`
   - Tests search bar input, debounced queries, result rendering, and conversation navigation.
 
