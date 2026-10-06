@@ -17,6 +17,7 @@ export const TaskCard = ({
   onEdit,
   onDelete,
   onOpenDetails,
+  onStartFocus,
   authAxios,
   teamMembers = [],
   currentUserId,
@@ -148,6 +149,11 @@ export const TaskCard = ({
             {onOpenDetails && (
               <Button variant="ghost" size="sm" onClick={() => onOpenDetails(task)} aria-label={`View comments for ${title}`}>
                 💬 {comments.length || 0}
+              </Button>
+            )}
+            {onStartFocus && (
+              <Button variant="ghost" size="sm" onClick={() => onStartFocus(_id || task.id)} aria-label={`Start focus on ${title}`}>
+                🎯 Focus
               </Button>
             )}
           </div>

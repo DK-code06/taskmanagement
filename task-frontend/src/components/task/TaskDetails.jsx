@@ -20,6 +20,7 @@ export const TaskDetails = ({
   authAxios,
   onAddComment,
   onToggleComplete,
+  onStartFocus,
   teamMembers = [],
   currentUserId,
 }) => {
@@ -28,6 +29,8 @@ export const TaskDetails = ({
   const [aiConsentEnabled, setAiConsentEnabled] = useState(false);
   const [showDecomposeModal, setShowDecomposeModal] = useState(false);
   const [subtaskRefreshKey, setSubtaskRefreshKey] = useState(0);
+  const [startingFocus, setStartingFocus] = useState(false);
+  const [focusError, setFocusError] = useState(null);
 
   useEffect(() => {
     if (isOpen && authAxios) {
@@ -59,6 +62,30 @@ export const TaskDetails = ({
     ? new Date(dueDate).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
     : null;
 
+  const handleStartFocusClick = async () => {
+    const targetTaskId = _id || task.id;
+    if (onStartFocus) {
+      return onStartFocus(targetTaskId);
+    }
+    if (!authAxios || !targetTaskId) return;
+
+    setStartingFocus(true);
+    setFocusError(null);
+    try {
+      await authAxios.post('/focus/sessions', { taskId: targetTaskId });
+      onClose();
+    } catch (err) {
+      console.error('Failed to start focus session:', err);
+      if (err.response?.status === 409) {
+        setFocusError('An active focus session already exists. Complete or cancel it first.');
+      } else {
+        setFocusError(err.response?.data?.error || 'Failed to start focus session.');
+      }
+    } finally {
+      setStartingFocus(false);
+    }
+  };
+
   const handleCommentSubmit = async (e) => {
     e.preventDefault();
     if (!newComment.trim()) return;
@@ -77,17 +104,28 @@ export const TaskDetails = ({
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={title} maxWidth="600px">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
-        {/* Status & Priority */}
+        {/* Status & Priority & Actions */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <TaskStatusBadge status={status} size="md" />
             <TaskPriorityBadge priority={priority} size="md" />
           </div>
 
-          <Button variant={status === 'Done' ? 'outline' : 'primary'} size="sm" onClick={() => onToggleComplete && onToggleComplete(task)}>
-            {status === 'Done' ? '↩ Reopen Task' : '✅ Mark as Done'}
-          </Button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Button variant="outline" size="sm" onClick={handleStartFocusClick} loading={startingFocus}>
+              🎯 Start Focus
+            </Button>
+            <Button variant={status === 'Done' ? 'outline' : 'primary'} size="sm" onClick={() => onToggleComplete && onToggleComplete(task)}>
+              {status === 'Done' ? '↩ Reopen Task' : '✅ Mark as Done'}
+            </Button>
+          </div>
         </div>
+
+        {focusError && (
+          <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-danger, #ef4444)', padding: '0.5rem', backgroundColor: 'rgba(239, 68, 68, 0.1)', borderRadius: 'var(--radius-md)' }}>
+            ⚠️ {focusError}
+          </div>
+        )}
 
         {/* Metadata Details */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-sm)', fontSize: 'var(--font-size-sm)', backgroundColor: 'var(--color-bg-subtle)', padding: '0.75rem', borderRadius: 'var(--radius-md)' }}>

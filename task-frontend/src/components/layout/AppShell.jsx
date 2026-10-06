@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { Header } from './Header';
 import { Drawer } from '../ui/Drawer';
+import { FocusControlBar } from '../focus/FocusControlBar';
 
 /**
  * Reusable AppShell Layout Foundation (M4.1)
- * Provides max-width container, responsive mobile nav drawer, and landmark regions
+ * Provides max-width container, responsive mobile nav drawer, landmark regions, and floating Focus Control Bar
  */
 export const AppShell = ({
   user,
@@ -14,6 +15,10 @@ export const AppShell = ({
   sidebarContent,
   children,
   maxWidth = '1600px',
+  focusSession = null,
+  focusElapsed = 0,
+  authAxios = null,
+  onFocusSessionUpdated = null,
 }) => {
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
 
@@ -50,6 +55,15 @@ export const AppShell = ({
       >
         {children}
       </div>
+
+      {focusSession && (
+        <FocusControlBar
+          activeSession={focusSession}
+          initialElapsedSeconds={focusElapsed}
+          authAxios={authAxios}
+          onSessionUpdated={onFocusSessionUpdated}
+        />
+      )}
 
       {sidebarContent && (
         <Drawer
