@@ -501,12 +501,13 @@ export default function CategoryView() {
       </div>
 
       <div className="active-tasks-board">
-        <div className="header">
-          <h1>
-            <Link to="/" className="back-link" title="Back to Dashboard"></Link>
-            {" "}
-            {categoryName || "Tasks"}
-          </h1>
+        <div className="header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <Link to="/" className="btn-back-header" title="Back to Dashboard">
+              ← Back to Dashboard
+            </Link>
+            <h1 style={{ margin: 0 }}>{categoryName || "Tasks"}</h1>
+          </div>
           <div className="user-info">
             <span>Hello, <strong>{username}</strong></span>
             <button onClick={handleLogout} className="btn btn-outline">Logout</button>

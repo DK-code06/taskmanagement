@@ -17,13 +17,17 @@ export const SocketProvider = ({ children }) => {
 
     useEffect(() => {
         if (token) {
-            // This creates the single, main connection for the app
-            const newSocket = io(SOCKET_URL);
+            // Pass auth token in handshake options for backend middleware authentication
+            const newSocket = io(SOCKET_URL, {
+                auth: { token },
+                transports: ['websocket', 'polling']
+            });
             
             newSocket.on('connect', () => {
                 try {
                     const decodedToken = jwtDecode(token);
-                    newSocket.emit('authenticate', decodedToken.id);
+                    const normalizedId = decodedToken._id ?? decodedToken.id ?? decodedToken.userId;
+                    newSocket.emit('authenticate', normalizedId);
                 } catch (error) {
                     console.error("Invalid token on socket auth:", error);
                 }

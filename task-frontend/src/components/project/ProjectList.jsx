@@ -153,6 +153,9 @@ export const ProjectList = ({ apiBase = API_BASE }) => {
       {/* Page Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
         <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
+            <Link to="/" className="btn-back-header">← Back to Dashboard</Link>
+          </div>
           <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: '700', color: 'var(--color-primary)', margin: 0 }}>
             📁 Projects Directory
           </h1>

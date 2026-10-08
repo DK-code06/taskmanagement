@@ -130,6 +130,48 @@ module.exports = function(io) {
         }
     });
 
+    // Get friends' daily progress (completed tasks today)
+    router.get('/progress', async (req, res) => {
+        try {
+            const Task = require('../models/Task');
+            const currentUser = await User.findById(req.user.id);
+            if (!currentUser) return res.json([]);
+
+            const acceptedFriendIds = currentUser.friends
+                .filter(f => f && f.user && f.status === 'accepted')
+                .map(f => f.user);
+
+            if (!acceptedFriendIds.length) return res.json([]);
+
+            const startOfDay = new Date();
+            startOfDay.setHours(0, 0, 0, 0);
+
+            const endOfDay = new Date();
+            endOfDay.setHours(23, 59, 59, 999);
+
+            const progress = await Task.aggregate([
+                {
+                    $match: {
+                        userId: { $in: acceptedFriendIds },
+                        completed: true,
+                        updatedAt: { $gte: startOfDay, $lte: endOfDay }
+                    }
+                },
+                {
+                    $group: {
+                        _id: "$userId",
+                        dailyCompleted: { $sum: 1 }
+                    }
+                }
+            ]);
+
+            res.json(progress);
+        } catch (err) {
+            console.error("Error fetching friends progress:", err);
+            res.json([]);
+        }
+    });
+
     // Mark messages from a friend as read
     router.put('/read-messages/:friendId', async (req, res) => {
         try {

@@ -234,18 +234,21 @@ export const ProjectOverview = ({ apiBase = API_BASE }) => {
 
   return (
     <div className="project-overview-page" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-xl)', width: '100%' }}>
-      {/* Breadcrumb Navigation */}
-      <nav aria-label="Breadcrumb" style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)' }}>
-        <ol style={{ display: 'flex', gap: '0.5rem', listStyle: 'none', padding: 0, margin: 0 }}>
-          <li>
-            <Link to="/projects" style={{ color: 'var(--color-primary)', textDecoration: 'none' }}>
-              Projects
-            </Link>
-          </li>
-          <li>/</li>
-          <li style={{ color: 'var(--color-text-primary)', fontWeight: '600' }}>{project.name}</li>
-        </ol>
-      </nav>
+      {/* Breadcrumb & Navigation */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+        <Link to="/projects" className="btn-back-header">← Back to Projects</Link>
+        <nav aria-label="Breadcrumb" style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)' }}>
+          <ol style={{ display: 'flex', gap: '0.5rem', listStyle: 'none', padding: 0, margin: 0 }}>
+            <li>
+              <Link to="/projects" style={{ color: 'var(--color-primary)', textDecoration: 'none' }}>
+                Projects
+              </Link>
+            </li>
+            <li>/</li>
+            <li style={{ color: 'var(--color-text-primary)', fontWeight: '600' }}>{project.name}</li>
+          </ol>
+        </nav>
+      </div>
 
       {/* Project Header */}
       <ProjectHeader

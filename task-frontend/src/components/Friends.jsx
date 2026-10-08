@@ -1,45 +1,49 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-
 import { API_BASE } from '../config';
 
-export default function Friends({ token, onChat, notifications, refreshKey }) {
+export default function Friends({ token, onChat, notifications = [], refreshKey }) {
     const [friends, setFriends] = useState([]);
     const [requests, setRequests] = useState([]);
     const [progress, setProgress] = useState([]);
+    const [activeTab, setActiveTab] = useState('friends'); // 'friends', 'requests', 'add'
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState([]);
-    
+    const [loading, setLoading] = useState(false);
+    const [sendingId, setSendingId] = useState(null);
+
     const authAxios = axios.create({
         baseURL: API_BASE,
         headers: { Authorization: `Bearer ${token}` },
     });
 
-    // This useEffect fetches all friend-related data. 
-    // It re-runs when the component mounts or when a friend request notification arrives (via refreshKey).
-    useEffect(() => {
-        const fetchData = async () => {
-            if (!token) return;
-            try {
-                const [friendsRes, progressRes] = await Promise.all([
-                    authAxios.get('/friends'),
-                    authAxios.get('/friends/progress')
-                ]);
-                setFriends(friendsRes.data.friends);
-                setRequests(friendsRes.data.pendingRequests);
-                setProgress(progressRes.data);
-            } catch (err) { console.error("Failed to fetch friends data", err); }
-        };
-        fetchData();
-    }, [token, refreshKey]); // The refreshKey prop forces this hook to re-run
+    const fetchData = useCallback(async () => {
+        if (!token) return;
+        setLoading(true);
+        try {
+            const friendsRes = await authAxios.get('/friends').catch(() => ({ data: { friends: [], pendingRequests: [] } }));
+            const progressRes = await authAxios.get('/friends/progress').catch(() => ({ data: [] }));
 
-    // This useEffect handles the user search functionality with a debounce
+            setFriends(friendsRes.data?.friends || []);
+            setRequests(friendsRes.data?.pendingRequests || []);
+            setProgress(progressRes.data || []);
+        } catch (err) {
+            console.error("Failed to fetch friends data", err);
+        } finally {
+            setLoading(false);
+        }
+    }, [token]);
+
     useEffect(() => {
-        if (searchQuery.length > 1) {
+        fetchData();
+    }, [fetchData, refreshKey]);
+
+    useEffect(() => {
+        if (searchQuery.trim().length > 1) {
             const delayDebounce = setTimeout(async () => {
                 try {
-                    const res = await authAxios.get(`/friends/search?query=${searchQuery}`);
-                    setSearchResults(res.data);
+                    const res = await authAxios.get(`/friends/search?query=${encodeURIComponent(searchQuery.trim())}`);
+                    setSearchResults(res.data || []);
                 } catch (error) {
                     console.error("Failed to search for users:", error);
                 }
@@ -51,97 +55,184 @@ export default function Friends({ token, onChat, notifications, refreshKey }) {
     }, [searchQuery]);
 
     const handleSendRequest = async (userId) => {
+        setSendingId(userId);
         try {
             await authAxios.post(`/friends/request/${userId}`);
             setSearchQuery('');
             setSearchResults([]);
-            alert("Friend request sent!");
+            fetchData();
+            alert("Friend request sent! ✨");
         } catch (error) {
             alert(error.response?.data?.error || "Failed to send request.");
+        } finally {
+            setSendingId(null);
         }
     };
 
     const handleAcceptRequest = async (userId) => {
         try {
             await authAxios.put(`/friends/accept/${userId}`);
-            // Refetch data after accepting to update lists
-             const [friendsRes, progressRes] = await Promise.all([
-                authAxios.get('/friends'),
-                authAxios.get('/friends/progress')
-            ]);
-            setFriends(friendsRes.data.friends);
-            setRequests(friendsRes.data.pendingRequests);
-            setProgress(progressRes.data);
+            fetchData();
         } catch (error) {
             alert(error.response?.data?.error || "Failed to accept request.");
         }
     };
-    
-    // Merge the daily progress data with the friends list
+
     const friendsWithProgress = friends.map(friend => {
-        const p = progress.find(prog => prog._id === friend.user._id);
+        const friendUser = friend.user || {};
+        const p = progress.find(prog => prog._id === friendUser._id);
         return {
-            ...friend.user, // Spread the user object which contains { _id, username }
-            unreadCount: friend.unreadCount, // Pass along the unread count
+            ...friendUser,
+            unreadCount: friend.unreadCount || 0,
             dailyCompleted: p ? p.dailyCompleted : 0
         };
     });
 
     return (
-        <div className="friends-section">
-            <h3>Friends</h3>
-            
-            {requests.length > 0 && (
-                <div className="friend-requests">
-                    <h4>Pending Requests</h4>
-                    {requests.map(req => (
-                        <div key={req.user._id} className="friend-item">
-                            <span>{req.user.username}</span>
-                            <button onClick={() => handleAcceptRequest(req.user._id)} className="btn-accept">Accept</button>
+        <div className="friends-card-container">
+            {/* Header & Tabs */}
+            <div className="friends-header">
+                <h3 className="friends-title">👥 Community & Friends</h3>
+                <div className="friends-tabs">
+                    <button 
+                        className={`tab-btn ${activeTab === 'friends' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('friends')}
+                    >
+                        Friends ({friends.length})
+                    </button>
+                    <button 
+                        className={`tab-btn ${activeTab === 'requests' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('requests')}
+                    >
+                        Requests
+                        {requests.length > 0 && <span className="tab-badge">{requests.length}</span>}
+                    </button>
+                    <button 
+                        className={`tab-btn ${activeTab === 'add' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('add')}
+                    >
+                        ➕ Add
+                    </button>
+                </div>
+            </div>
+
+            {/* Tab 1: Friends List */}
+            {activeTab === 'friends' && (
+                <div className="friends-tab-content">
+                    {friendsWithProgress.length === 0 ? (
+                        <div className="empty-friends-state">
+                            <p>No friends added yet.</p>
+                            <button className="btn-primary-sm" onClick={() => setActiveTab('add')}>Find Friends</button>
                         </div>
-                    ))}
+                    ) : (
+                        <div className="friends-grid">
+                            {friendsWithProgress.map(friend => {
+                                const hasLiveNotification = notifications.some(n => n.fromUser?._id === friend._id && n.type === 'chat');
+                                const initial = (friend.username || 'U')[0].toUpperCase();
+
+                                return (
+                                    <div key={friend._id} className="friend-profile-card">
+                                        <div className="friend-avatar-wrapper">
+                                            <div className="friend-avatar">{initial}</div>
+                                            <span className="online-status-dot"></span>
+                                        </div>
+                                        <div className="friend-info">
+                                            <div className="friend-username-row">
+                                                <span className="friend-username">{friend.username}</span>
+                                                {hasLiveNotification && <span className="notification-dot" title="New message"></span>}
+                                                {friend.unreadCount > 0 && <span className="unread-badge">{friend.unreadCount}</span>}
+                                            </div>
+                                            <span className="friend-progress-badge">
+                                                ⚡ {friend.dailyCompleted} tasks completed today
+                                            </span>
+                                        </div>
+                                        <button 
+                                            onClick={() => onChat && onChat(friend)} 
+                                            className="btn-chat-action"
+                                            title="Open Chat"
+                                        >
+                                            💬 Chat
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
                 </div>
             )}
 
-            <div className="friends-progress">
-                <h4>Friends' Daily Progress</h4>
-                {friendsWithProgress.map(friend => {
-                    const hasLiveNotification = notifications.some(n => n.fromUser._id === friend._id && n.type === 'chat');
-                    return (
-                        <div key={friend._id} className="friend-item">
-                            <span className="friend-name">
-                                {friend.username}
-                                {hasLiveNotification && <span className="notification-dot"></span>}
-                                {friend.unreadCount > 0 && <span className="unread-badge">{friend.unreadCount}</span>}
-                            </span>
-                            <span className="friend-progress-text">
-                                {friend.dailyCompleted} tasks today
-                            </span>
-                            <button onClick={() => onChat(friend)} className="btn-chat">Chat</button>
+            {/* Tab 2: Pending Requests */}
+            {activeTab === 'requests' && (
+                <div className="friends-tab-content">
+                    {requests.length === 0 ? (
+                        <div className="empty-friends-state">
+                            <p>No pending friend requests.</p>
                         </div>
-                    );
-                })}
-            </div>
-
-            <div className="add-friend">
-                <h4>Add a Friend</h4>
-                <input
-                    type="text"
-                    placeholder="Search by username..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="input"
-                />
-                <div className="search-results">
-                    {searchResults.map(user => (
-                        <div key={user._id} className="search-result-item">
-                            <span>{user.username}</span>
-                            <button onClick={() => handleSendRequest(user._id)} className="btn-add">+</button>
+                    ) : (
+                        <div className="requests-list">
+                            {requests.map(req => {
+                                const reqUser = req.user || {};
+                                const initial = (reqUser.username || 'U')[0].toUpperCase();
+                                return (
+                                    <div key={reqUser._id} className="request-card">
+                                        <div className="request-user-info">
+                                            <div className="friend-avatar">{initial}</div>
+                                            <div>
+                                                <span className="request-username">{reqUser.username}</span>
+                                                <span className="request-subtitle">wants to connect with you</span>
+                                            </div>
+                                        </div>
+                                        <button 
+                                            onClick={() => handleAcceptRequest(reqUser._id)} 
+                                            className="btn-accept-action"
+                                        >
+                                            ✓ Accept Request
+                                        </button>
+                                    </div>
+                                );
+                            })}
                         </div>
-                    ))}
+                    )}
                 </div>
-            </div>
+            )}
+
+            {/* Tab 3: Search & Add Friend */}
+            {activeTab === 'add' && (
+                <div className="friends-tab-content">
+                    <div className="search-friend-box">
+                        <input
+                            type="text"
+                            placeholder="Search by username..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="friend-search-input"
+                        />
+                    </div>
+                    <div className="search-results-list">
+                        {searchResults.length === 0 && searchQuery.length > 1 && (
+                            <p className="no-results-text">No user found matching "{searchQuery}"</p>
+                        )}
+                        {searchResults.map(user => {
+                            const initial = (user.username || 'U')[0].toUpperCase();
+                            return (
+                                <div key={user._id} className="search-user-card">
+                                    <div className="request-user-info">
+                                        <div className="friend-avatar">{initial}</div>
+                                        <span className="request-username">{user.username}</span>
+                                    </div>
+                                    <button 
+                                        onClick={() => handleSendRequest(user._id)} 
+                                        disabled={sendingId === user._id}
+                                        className="btn-add-action"
+                                    >
+                                        {sendingId === user._id ? 'Sending...' : '+ Add Friend'}
+                                    </button>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
-
