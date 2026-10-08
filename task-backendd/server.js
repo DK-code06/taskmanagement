@@ -46,11 +46,50 @@ const app = express();
 const server = http.createServer(app);
 
 // Environment & Security Config
-let rawOrigin = process.env.CLIENT_ORIGIN ? process.env.CLIENT_ORIGIN.trim() : "http://localhost:5173";
-if (rawOrigin && !/^https?:\/\//i.test(rawOrigin)) {
-  rawOrigin = `https://${rawOrigin}`;
+const parseOrigins = (raw) => {
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((o) => {
+      let trimmed = o.trim();
+      if (trimmed && !/^https?:\/\//i.test(trimmed)) {
+        trimmed = `https://${trimmed}`;
+      }
+      return trimmed.replace(/\/+$/, "");
+    })
+    .filter(Boolean);
+};
+
+const configuredOrigins = parseOrigins(process.env.CLIENT_ORIGIN);
+if (!configuredOrigins.includes("http://localhost:5173")) {
+  configuredOrigins.push("http://localhost:5173", "http://127.0.0.1:5173");
 }
-const CLIENT_ORIGIN = rawOrigin;
+
+const isAllowedOrigin = (origin, callback) => {
+  // Allow requests with no origin (like mobile apps, curl, webhooks, or Postman)
+  if (!origin) return callback(null, true);
+
+  const normalizedOrigin = origin.trim().replace(/\/+$/, "");
+
+  // Check if origin matches configuredOrigins directly
+  if (configuredOrigins.includes(normalizedOrigin)) {
+    return callback(null, true);
+  }
+
+  // Auto-allow any *.vercel.app domain for seamless Vercel previews & production
+  try {
+    const hostname = new URL(normalizedOrigin).hostname;
+    if (hostname.endsWith(".vercel.app") || hostname === "vercel.app") {
+      return callback(null, true);
+    }
+  } catch (e) {
+    // Ignore invalid origin URL parse errors
+  }
+
+  return callback(new Error(`CORS origin ${origin} not allowed`));
+};
+
+const CLIENT_ORIGIN = configuredOrigins[0] || "http://localhost:5173";
 const PORT = process.env.PORT || 5000;
 const isProd = process.env.NODE_ENV === "production";
 
@@ -76,7 +115,7 @@ app.use(helmet({
 }));
 app.use(cookieParser());
 app.use(cors({
-  origin: [CLIENT_ORIGIN, "http://localhost:5173", "http://127.0.0.1:5173"],
+  origin: isAllowedOrigin,
   credentials: true
 }));
 
@@ -121,7 +160,7 @@ app.get("/api/ready", async (req, res) => {
 // Socket.IO Server Setup
 const io = new Server(server, {
   cors: {
-    origin: [CLIENT_ORIGIN, "http://localhost:5173", "http://127.0.0.1:5173"],
+    origin: isAllowedOrigin,
     methods: ["GET", "POST"],
     credentials: true
   }
