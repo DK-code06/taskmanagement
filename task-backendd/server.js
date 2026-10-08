@@ -43,6 +43,7 @@ validateEnv();
 connectDB();
 
 const app = express();
+app.set("trust proxy", 1); // Trust first proxy (Render / Cloudflare / Vercel load balancer)
 const server = http.createServer(app);
 
 // Environment & Security Config
@@ -130,14 +131,18 @@ app.use(mongoSanitize());
 // Rate Limiting
 const authRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 30, // 30 requests per window
-  message: { error: "Too many authentication requests, please try again later." }
+  max: 100, // 100 auth attempts per window
+  message: { error: "Too many authentication requests, please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 
 const generalApiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 300,
-  message: { error: "Too many API requests, please try again later." }
+  max: 2000, // 2000 requests per 15 minutes window
+  message: { error: "Too many API requests, please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 
 app.use("/api/auth/login", authRateLimiter);
