@@ -46,7 +46,11 @@ const app = express();
 const server = http.createServer(app);
 
 // Environment & Security Config
-const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || "http://localhost:5173";
+let rawOrigin = process.env.CLIENT_ORIGIN ? process.env.CLIENT_ORIGIN.trim() : "http://localhost:5173";
+if (rawOrigin && !/^https?:\/\//i.test(rawOrigin)) {
+  rawOrigin = `https://${rawOrigin}`;
+}
+const CLIENT_ORIGIN = rawOrigin;
 const PORT = process.env.PORT || 5000;
 const isProd = process.env.NODE_ENV === "production";
 

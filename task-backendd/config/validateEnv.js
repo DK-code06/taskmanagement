@@ -42,12 +42,20 @@ function validateEnv() {
   }
 
   // 4. CLIENT_ORIGIN Validation
-  const clientOrigin = process.env.CLIENT_ORIGIN;
+  let clientOrigin = process.env.CLIENT_ORIGIN ? process.env.CLIENT_ORIGIN.trim() : '';
   if (clientOrigin && isProduction) {
-    try {
-      new URL(clientOrigin);
-    } catch (err) {
-      errors.push('CLIENT_ORIGIN must be a valid HTTP or HTTPS URL.');
+    if (!/^https?:\/\//i.test(clientOrigin)) {
+      clientOrigin = `https://${clientOrigin}`;
+      process.env.CLIENT_ORIGIN = clientOrigin;
+    }
+    if (clientOrigin.includes('<') || clientOrigin.includes('>')) {
+      errors.push('CLIENT_ORIGIN contains placeholder brackets. Please set it to your actual Vercel app URL (e.g. https://taskmanagement-frontend.vercel.app).');
+    } else {
+      try {
+        new URL(clientOrigin);
+      } catch (err) {
+        errors.push('CLIENT_ORIGIN must be a valid HTTP or HTTPS URL (e.g. https://taskmanagement-frontend.vercel.app).');
+      }
     }
   }
 
