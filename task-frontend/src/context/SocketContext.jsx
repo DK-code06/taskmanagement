@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
 import { jwtDecode } from 'jwt-decode';
+import { BACKEND_URL } from '../config';
 
 const SocketContext = createContext();
 
@@ -8,7 +9,7 @@ export const useSocket = () => {
     return useContext(SocketContext);
 };
 
-const SOCKET_URL = "http://localhost:5000";
+const SOCKET_URL = BACKEND_URL;
 
 export const SocketProvider = ({ children }) => {
     const [socket, setSocket] = useState(null);

@@ -8,7 +8,7 @@ import { jwtDecode } from "jwt-decode";
 import { useToast, LocalToasts } from "../context/ToastContext";
 import "../App.css"; // reuse your styles (adjust path if different)
 
-const API_BASE = "http://localhost:5000/api";
+import { API_BASE } from "../config";
 
 const priorities = ["High", "Medium", "Low", "No Priority"];
 const statuses = ["To Do", "In Progress"];

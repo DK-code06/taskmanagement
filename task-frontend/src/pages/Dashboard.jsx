@@ -24,7 +24,7 @@ import {
 
 import "./Dashboard.css";
 
-const API_BASE = "http://localhost:5000/api";
+import { API_BASE } from "../config";
 
 const TaskAlertPanel = ({ alerts, onDismiss }) => (
   <div className="task-alert-panel" aria-live="polite">

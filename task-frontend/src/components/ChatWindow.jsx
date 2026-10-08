@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import { BACKEND_URL } from '../config';
 
-const API_BASE = "http://localhost:5000";
+const API_BASE = BACKEND_URL;
 
 // Helper function to get initials for avatar
 const getInitials = (name = '') => {

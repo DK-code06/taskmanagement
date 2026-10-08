@@ -10,12 +10,13 @@ import { Spinner } from '../ui/Spinner';
 import { EmptyState } from '../ui/EmptyState';
 import { useToast } from '../../context/ToastContext';
 import { jwtDecode } from 'jwt-decode';
+import { API_BASE } from '../../config';
 
 /**
  * ProjectList Component (M4.2)
  * Main responsive Projects list page with search, status filters, and project creation flow
  */
-export const ProjectList = ({ apiBase = 'http://localhost:5000/api' }) => {
+export const ProjectList = ({ apiBase = API_BASE }) => {
   const navigate = useNavigate();
   const { addToast } = useToast();
 

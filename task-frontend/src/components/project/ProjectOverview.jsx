@@ -13,12 +13,13 @@ import { Spinner } from '../ui/Spinner';
 import { EmptyState } from '../ui/EmptyState';
 import { useToast } from '../../context/ToastContext';
 import { jwtDecode } from 'jwt-decode';
+import { API_BASE } from '../../config';
 
 /**
  * ProjectOverview Component (M4.3)
  * Full project detail screen with Project -> Milestone -> Task -> Subtask hierarchy and Kanban Board
  */
-export const ProjectOverview = ({ apiBase = 'http://localhost:5000/api' }) => {
+export const ProjectOverview = ({ apiBase = API_BASE }) => {
   const { projectId } = useParams();
   const navigate = useNavigate();
   const { addToast } = useToast();

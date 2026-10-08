@@ -6,6 +6,7 @@ import { MessageList } from './MessageList';
 import { MessageComposer } from './MessageComposer';
 import { MessageSearchInput } from './MessageSearchInput';
 import { Button } from '../ui/Button';
+import { BACKEND_URL } from '../../config';
 
 /**
  * ChatDrawer Component (M4.4)
@@ -17,7 +18,7 @@ export const ChatDrawer = ({
   token,
   currentUser,
   socket,
-  apiBase = 'http://localhost:5000',
+  apiBase = BACKEND_URL,
   initialFriend = null,
   notifications = [],
   onMessagesRead,

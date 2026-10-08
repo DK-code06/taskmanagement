@@ -3,8 +3,8 @@
 import { useState } from "react";
 import axios from "axios";
 import { useNavigate, Link } from "react-router-dom";
+import { API_BASE } from "../config";
 import "../App.css"; // ✅ Keep this one
-// import "./Auth.css";   // ❌ DELETE THIS LINE
 
 export default function Login() {
   const [username, setUsername] = useState("");
@@ -14,7 +14,7 @@ export default function Login() {
   const handleLogin = async (e) => {
     e.preventDefault();
     try {
-      const res = await axios.post("http://localhost:5000/api/auth/login", { username, password });
+      const res = await axios.post(`${API_BASE}/auth/login`, { username, password });
       localStorage.setItem("token", res.data.token);
       navigate("/");
     } catch (err) {
