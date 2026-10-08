@@ -19,6 +19,20 @@ function urlBase64ToUint8Array(base64String) {
 }
 
 /**
+ * Helper to ensure Service Worker is registered before requesting PushManager subscription
+ */
+async function getOrRegisterServiceWorker() {
+  if (!('serviceWorker' in navigator)) {
+    throw new Error('Service Workers are not supported in this browser.');
+  }
+  let reg = await navigator.serviceWorker.getRegistration();
+  if (!reg) {
+    reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+  }
+  return reg;
+}
+
+/**
  * NotificationPreferences Component (M4.4)
  * Form for managing in-app, Web Push, and category notification preferences
  */
@@ -60,16 +74,15 @@ export const NotificationPreferences = ({ authAxios }) => {
   useEffect(() => {
     fetchPreferences();
 
-    // Check Web Push Browser support
+    // Check Web Push Browser support & registration
     const isSupported = 'serviceWorker' in navigator && 'PushManager' in window;
     setPushSupported(isSupported);
 
-    if (isSupported && navigator.serviceWorker) {
-      navigator.serviceWorker.ready.then((reg) => {
-        reg.pushManager.getSubscription().then((sub) => {
-          setPushSubscribed(Boolean(sub));
-        });
-      });
+    if (isSupported) {
+      getOrRegisterServiceWorker()
+        .then((reg) => reg.pushManager.getSubscription())
+        .then((sub) => setPushSubscribed(Boolean(sub)))
+        .catch(() => {});
     }
   }, [fetchPreferences]);
 
@@ -111,13 +124,13 @@ export const NotificationPreferences = ({ authAxios }) => {
     setPushLoading(true);
 
     try {
-      const reg = await navigator.serviceWorker.ready;
+      const reg = await getOrRegisterServiceWorker();
 
       if (pushSubscribed) {
         // Unsubscribe
         const sub = await reg.pushManager.getSubscription();
         if (sub) {
-          await authAxios.post('/notifications/push/unsubscribe', { endpoint: sub.endpoint });
+          await authAxios.post('/notifications/push/unsubscribe', { endpoint: sub.endpoint }).catch(() => {});
           await sub.unsubscribe();
         }
         setPushSubscribed(false);
@@ -131,7 +144,12 @@ export const NotificationPreferences = ({ authAxios }) => {
         }
 
         const keyRes = await authAxios.get('/notifications/push/vapid-key');
-        const vapidPublicKey = keyRes.data.publicKey;
+        const vapidPublicKey = keyRes.data?.publicKey;
+
+        if (!vapidPublicKey) {
+          addToast('Web Push VAPID key is not available.', { type: 'warning' });
+          return;
+        }
 
         const convertedKey = urlBase64ToUint8Array(vapidPublicKey);
         const newSub = await reg.pushManager.subscribe({
@@ -145,7 +163,7 @@ export const NotificationPreferences = ({ authAxios }) => {
             p256dh: btoa(String.fromCharCode.apply(null, new Uint8Array(newSub.getKey('p256dh')))),
             auth: btoa(String.fromCharCode.apply(null, new Uint8Array(newSub.getKey('auth')))),
           },
-          deviceLabel: `${navigator.platform} Browser`,
+          deviceLabel: `${navigator.platform || 'Desktop'} Browser`,
           userAgent: navigator.userAgent,
         });
 
@@ -154,7 +172,7 @@ export const NotificationPreferences = ({ authAxios }) => {
       }
     } catch (err) {
       console.error('Web Push setup error:', err);
-      addToast('Failed to configure Web Push notifications.', { type: 'error' });
+      addToast(err.message || 'Failed to configure Web Push notifications.', { type: 'error' });
     } finally {
       setPushLoading(false);
     }
